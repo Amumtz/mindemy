@@ -66,8 +66,8 @@ class MLModel(db.Model):
     file_path = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=False)
     data_count = db.Column(db.Integer)
-    qcut_thresholds = db.Column(db.Text)          # JSON (deprecated, bisa tetap ada)
-    artifact_metadata = db.Column(db.Text)        # JSON - Menyimpan bins, categories, best_params, cv_f1
+    qcut_thresholds = db.Column(db.Text, nullable=True)     # atau db.JSON
+    artifact_metadata = db.Column(db.Text, nullable=True)       # JSON - Menyimpan bins, categories, best_params, cv_f1
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relasi ke training history (opsional)

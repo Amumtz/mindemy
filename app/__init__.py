@@ -22,11 +22,11 @@ def create_app(config_name='development'):
 
     # Hanya inisialisasi Celery jika TIDAK menjalankan perintah migrasi
     # dan tidak sedang menjalankan flask shell (opsional)
-    if not any(cmd in sys.argv for cmd in ['db', 'shell']):
-        from app.tasks.training_tasks import make_celery, register_train_task
-        global celery
-        celery = make_celery(app)
-        register_train_task(celery, app)
+    # if not any(cmd in sys.argv for cmd in ['db', 'shell']):
+    #     from app.tasks.training_tasks import make_celery, register_train_task
+    #     global celery
+    #     celery = make_celery(app)
+    #     register_train_task(celery, app)
 
     # Register blueprints
     from app.api.auth import auth_bp
