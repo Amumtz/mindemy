@@ -20,6 +20,8 @@ from app.utils.scoring import (
     generate_saran, score_to_category,
 )
 from app.ml.predictor import registry, audit_input,prepare_stress_input, prepare_motivasi_input
+from app.models.mood_diary import MoodEntry, DiaryEntry
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 mahasiswa_bp = Blueprint("mahasiswa", __name__)
@@ -263,3 +265,181 @@ def profil_status():
         "is_complete": len(missing) == 0,
         "missing_fields": missing
     })
+
+# ── Mood & Diary Routes ─────────────────────────────────────────────
+
+@mahasiswa_bp.route("/mood", methods=["POST"])
+@mahasiswa_required
+def add_mood():
+    """Tambah catatan mood harian (1-5)"""
+    data = request.get_json(silent=True) or {}
+    nim = data.get("nim")
+    date_str = data.get("date")      # format YYYY-MM-DD
+    mood_value = data.get("mood_value")
+
+    if current_user.role == "mahasiswa":
+        nim = current_user.mahasiswa.NIM
+    else:
+        if not nim:
+            return jsonify({"error": "NIM wajib disertakan oleh admin."}), 400
+
+    if not date_str or mood_value is None:
+        return jsonify({"error": "date dan mood_value wajib diisi."}), 400
+
+    try:
+        mood_value = int(mood_value)
+        if not (1 <= mood_value <= 5):
+            return jsonify({"error": "mood_value harus antara 1-5."}), 400
+    except ValueError:
+        return jsonify({"error": "mood_value harus berupa angka."}), 400
+
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "format date harus YYYY-MM-DD."}), 400
+
+    mhs = Mahasiswa.query.get(nim)
+    if not mhs:
+        return jsonify({"error": "Mahasiswa tidak ditemukan."}), 404
+
+    new_mood = MoodEntry(nim=nim, date=date_obj, mood_value=mood_value)
+    db.session.add(new_mood)
+    db.session.commit()
+    return jsonify(new_mood.to_dict()), 201
+
+
+@mahasiswa_bp.route("/diary", methods=["POST"])
+@mahasiswa_required
+def add_diary():
+    """Tambah entri diary (bisa banyak per hari)"""
+    data = request.get_json(silent=True) or {}
+    nim = data.get("nim")
+    date_str = data.get("date")
+    title = data.get("title", "")
+    content = data.get("content")
+
+    if current_user.role == "mahasiswa":
+        nim = current_user.mahasiswa.NIM
+    else:
+        if not nim:
+            return jsonify({"error": "NIM wajib disertakan oleh admin."}), 400
+
+    if not date_str or not content:
+        return jsonify({"error": "date dan content wajib diisi."}), 400
+
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "format date harus YYYY-MM-DD."}), 400
+
+    mhs = Mahasiswa.query.get(nim)
+    if not mhs:
+        return jsonify({"error": "Mahasiswa tidak ditemukan."}), 404
+
+    new_diary = DiaryEntry(nim=nim, date=date_obj, title=title, content=content)
+    db.session.add(new_diary)
+    db.session.commit()
+    return jsonify(new_diary.to_dict()), 201
+
+
+@mahasiswa_bp.route("/mood/<nim>", methods=["GET"])
+@jwt_required()
+def get_mood_by_nim(nim):
+    """Ambil semua mood mahasiswa berdasarkan NIM (terbaru di atas)"""
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    moods = MoodEntry.query.filter_by(nim=nim).order_by(
+        MoodEntry.date.desc(), MoodEntry.created_at.desc()
+    ).all()
+    return jsonify([m.to_dict() for m in moods])
+
+
+@mahasiswa_bp.route("/diary/<nim>", methods=["GET"])
+@jwt_required()
+def get_diary_by_nim(nim):
+    """Ambil semua diary mahasiswa"""
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    diaries = DiaryEntry.query.filter_by(nim=nim).order_by(
+        DiaryEntry.date.desc(), DiaryEntry.created_at.desc()
+    ).all()
+    return jsonify([d.to_dict() for d in diaries])
+
+
+@mahasiswa_bp.route("/mood/<int:id>", methods=["PUT"])
+@mahasiswa_required
+def update_mood(id):
+    """Update mood_value (dan opsional date) berdasarkan id entry"""
+    mood = MoodEntry.query.get_or_404(id)
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != mood.nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    data = request.get_json(silent=True) or {}
+    if "mood_value" in data:
+        try:
+            val = int(data["mood_value"])
+            if 1 <= val <= 5:
+                mood.mood_value = val
+            else:
+                return jsonify({"error": "mood_value harus 1-5."}), 400
+        except ValueError:
+            return jsonify({"error": "mood_value harus angka."}), 400
+    if "date" in data:
+        try:
+            mood.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "format date YYYY-MM-DD."}), 400
+
+    db.session.commit()
+    return jsonify(mood.to_dict())
+
+
+@mahasiswa_bp.route("/diary/<int:id>", methods=["PUT"])
+@mahasiswa_required
+def update_diary(id):
+    """Update title, content, atau date diary"""
+    diary = DiaryEntry.query.get_or_404(id)
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != diary.nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    data = request.get_json(silent=True) or {}
+    if "title" in data:
+        diary.title = data["title"]
+    if "content" in data:
+        diary.content = data["content"]
+    if "date" in data:
+        try:
+            diary.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "format date YYYY-MM-DD."}), 400
+
+    db.session.commit()
+    return jsonify(diary.to_dict())
+
+
+@mahasiswa_bp.route("/mood/<int:id>", methods=["DELETE"])
+@mahasiswa_required
+def delete_mood(id):
+    """Hapus mood entry berdasarkan id"""
+    mood = MoodEntry.query.get_or_404(id)
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != mood.nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    db.session.delete(mood)
+    db.session.commit()
+    return jsonify({"message": "Mood entry dihapus."}), 200
+
+
+@mahasiswa_bp.route("/diary/<int:id>", methods=["DELETE"])
+@mahasiswa_required
+def delete_diary(id):
+    """Hapus diary entry berdasarkan id"""
+    diary = DiaryEntry.query.get_or_404(id)
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != diary.nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+
+    db.session.delete(diary)
+    db.session.commit()
+    return jsonify({"message": "Diary entry dihapus."}), 200
