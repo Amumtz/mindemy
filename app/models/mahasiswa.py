@@ -10,6 +10,7 @@ class Mahasiswa(db.Model):
     IPK = db.Column(db.Numeric(3, 2), default=0.00)
     NIP_doswal = db.Column(db.String(20), db.ForeignKey("dosen.NIP"))
     Id_User = db.Column(db.Integer, db.ForeignKey("users.Id_User"), nullable=False, unique=True)
+    foto_profil = db.Column(db.String(255), nullable=True)
 
     # Tambahan kolom demografi (jika sudah ditambahkan via migrasi)
     angkatan = db.Column(db.String(10))
@@ -34,6 +35,7 @@ class Mahasiswa(db.Model):
             "IPK": float(self.IPK) if self.IPK else None,
             "NIP_doswal": self.NIP_doswal,
             "Id_User": self.Id_User,
+            "foto_profil": self.foto_profil,
             "angkatan": self.angkatan,
             "gender": self.gender,
             "usia": self.usia,

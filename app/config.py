@@ -19,9 +19,15 @@ class BaseConfig:
     CELERY_BROKER_URL        = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CELERY_RESULT_BACKEND    = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+    # Upload umum
     UPLOAD_FOLDER  = os.getenv("UPLOAD_FOLDER",  "storage/uploads")
     MODELS_FOLDER  = os.getenv("MODELS_FOLDER",  "storage/models")
-    MAX_CONTENT_LENGTH = 50 * 1024 * 1024          # 50 MB max upload
+    MAX_CONTENT_LENGTH = 50 * 1024 * 1024          # 50 MB max upload (umum)
+
+    # Konfigurasi khusus foto profil
+    PROFILE_PHOTO_FOLDER = os.getenv("PROFILE_PHOTO_FOLDER", "storage/uploads/profile")
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    MAX_PROFILE_PHOTO_SIZE = 2 * 1024 * 1024          # 2 MB
 
 
 class DevelopmentConfig(BaseConfig):
