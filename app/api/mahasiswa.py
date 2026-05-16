@@ -22,6 +22,9 @@ from app.utils.scoring import (
 from app.ml.predictor import registry, audit_input,prepare_stress_input, prepare_motivasi_input
 from app.models.mood_diary import MoodEntry, DiaryEntry
 from datetime import datetime
+from app.utils.file_upload import save_profile_picture
+from werkzeug.exceptions import BadRequest
+import time
 
 logger = logging.getLogger(__name__)
 mahasiswa_bp = Blueprint("mahasiswa", __name__)
@@ -443,3 +446,60 @@ def delete_diary(id):
     db.session.delete(diary)
     db.session.commit()
     return jsonify({"message": "Diary entry dihapus."}), 200
+
+@mahasiswa_bp.route("/profil/foto", methods=["PUT"])
+@jwt_required()
+def upload_foto_profil():
+    if current_user.role != "mahasiswa":
+        return jsonify({"error": "Hanya mahasiswa yang dapat mengakses."}), 403
+
+    mhs = current_user.mahasiswa
+    
+    if 'foto' not in request.files:
+        return jsonify({"error": "Tidak ada file foto yang dikirim."}), 400
+    
+    file = request.files['foto']
+    if file.filename == '':
+        return jsonify({"error": "Nama file kosong."}), 400
+    
+    try:
+        # Simpan file dan dapatkan path relatif
+        relative_path = save_profile_picture(file, mhs.NIM)
+        # Hapus foto lama jika ada
+        if mhs.foto_profil:
+            old_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        
+        mhs.foto_profil = relative_path
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Foto profil berhasil diunggah.",
+            "foto_profil": relative_path
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Gagal upload foto: {e}")
+        return jsonify({"error": "Terjadi kesalahan saat menyimpan foto."}), 500
+    
+@mahasiswa_bp.route("/profil/foto/<nim>", methods=["GET"])
+@jwt_required()
+def get_foto_profil(nim):
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
+        return jsonify({"error": "Akses ditolak."}), 403
+    
+    mhs = Mahasiswa.query.get(nim)
+    if not mhs or not mhs.foto_profil:
+        return jsonify({"error": "Foto profil tidak ditemukan."}), 404
+    
+    # Path absolut
+    file_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "File foto tidak ada di server."}), 404
+    
+    from flask import send_file
+    return send_file(file_path)
