@@ -71,52 +71,60 @@ def me():
 
 
 @auth_bp.route("/register", methods=["POST"])
-@jwt_required()
 def register():
-    if current_user.role != "admin":
-        return jsonify({"error": "Hanya admin yang dapat mendaftarkan akun."}), 403
-
     data = request.get_json(silent=True) or {}
-    required = ["username", "password", "role"]
-    for f in required:
-        if not data.get(f):
-            return jsonify({"error": f"Field '{f}' wajib diisi."}), 400
 
-    if User.query.filter_by(username=data["username"]).first():
+    # Ambil field identitas (bisa dikirim sebagai "identity" atau "nim" / "nip")
+    identity = data.get("identity") or data.get("nim") or data.get("nip")
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    if not identity or not username or not password:
+        return jsonify({"error": "NIM/NIP, username, dan password wajib diisi."}), 400
+
+    
+    if identity.isdigit() and len(identity) <= 12:
+        role = "dosen"
+        nip = identity
+        nim = None
+    else:
+        role = "mahasiswa"
+        nim = identity
+        nip = None
+
+    if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username sudah digunakan."}), 409
 
-    if data["role"] not in ("admin", "dosen", "mahasiswa"):
-        return jsonify({"error": "Role tidak valid."}), 400
-
-    user = User(username=data["username"], role=data["role"])
-    user.set_password(data["password"])
+    # Buat user
+    user = User(username=username, role=role)
+    user.set_password(password)
     db.session.add(user)
-    db.session.flush()  # get user.Id_User
+    db.session.flush()
 
-    # Create linked profile
-    if data["role"] == "mahasiswa" and data.get("NIM"):
+    # Buat profil dasar (hanya NIM/NIP, field lain null)
+    if role == "mahasiswa":
         mhs = Mahasiswa(
-            NIM=data["NIM"],
-            nama_mahasiswa=data.get("nama", data["username"]),
-            kelas=data.get("kelas"),
-            id_jurusan=data.get("id_jurusan"),
-            NIP_doswal=data.get("NIP_doswal"),
-            Id_User=user.Id_User,
+            NIM=nim,
+            nama_mahasiswa=None,   # akan diisi nanti
+            Id_User=user.Id_User
         )
         db.session.add(mhs)
-
-    elif data["role"] == "dosen" and data.get("NIP"):
+    else:
         dsn = Dosen(
-            NIP=data["NIP"],
-            nama_dosen=data.get("nama", data["username"]),
-            jabatan=data.get("jabatan"),
-            Id_User=user.Id_User,
+            NIP=nip,
+            nama_dosen=None,
+            Id_User=user.Id_User
         )
         db.session.add(dsn)
 
     db.session.commit()
-    return jsonify({"message": "Akun berhasil dibuat.", "user_id": user.Id_User}), 201
 
+    # Langsung login? Atau beri pesan sukses & minta login.
+    return jsonify({
+        "message": "Registrasi berhasil. Silakan login untuk melengkapi profil.",
+        "user_id": user.Id_User,
+        "role": role
+    }), 201
 
 # ── Helpers ──────────────────────────────────────────────────────
 

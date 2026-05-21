@@ -41,10 +41,8 @@ class DevelopmentConfig(BaseConfig):
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
-    # Gunakan os.getenv dengan fallback None, atau biarkan error jika tidak diset
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
-    if SQLALCHEMY_DATABASE_URI is None:
-        raise ValueError("DATABASE_URL environment variable must be set in production!")
+    # Validasi dipindah ke create_app agar tidak error saat import
     SQLALCHEMY_POOL_RECYCLE  = 280
     SQLALCHEMY_POOL_TIMEOUT  = 20
     SQLALCHEMY_MAX_OVERFLOW  = 5

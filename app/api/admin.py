@@ -220,72 +220,15 @@ def delete_model(model_id: int):
     db.session.commit()
     return jsonify({"message": "Model berhasil dihapus."})
 
+@admin_bp.route("/models/<int:model_id>/download", methods=["GET"])
+@admin_required
+def download_model(model_id: int):
+    model = MLModel.query.get_or_404(model_id)
+    if not os.path.exists(model.file_path):
+        return jsonify({"error": "File model tidak ditemukan"}), 404
+    return send_file(model.file_path, as_attachment=True,
+                     download_name=os.path.basename(model.file_path))
 
-# ── Dataset upload & list ────────────────────────────────────────
-
-
-# @admin_bp.route("/datasets", methods=["GET"])
-# @admin_required
-# def list_datasets():
-#     """Mengembalikan daftar dataset yang pernah diunggah."""
-#     datasets = Dataset.query.order_by(Dataset.uploaded_at.desc()).all()
-#     return jsonify([d.to_dict() for d in datasets])
-
-
-# # @admin_bp.route("/upload-dataset", methods=["POST"])
-# # @admin_required
-# # def upload_dataset():
-# #     """
-# #     Upload file CSV/Excel (75 kolom).
-# #     Field form: file, type (opsional: stress/motivasi)
-# #     """
-# #     file = request.files.get("file")
-# #     if not file:
-# #         return jsonify({"error": "File tidak ditemukan"}), 400
-# #     if not allowed_file(file.filename):
-# #         return jsonify({"error": "Format file tidak didukung (hanya .csv, .xlsx)"}), 415
-
-# #     # Simpan file sementara
-# #     upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads/datasets")
-# #     os.makedirs(upload_folder, exist_ok=True)
-# #     filename = secure_filename(file.filename)
-# #     # Tambahkan timestamp agar unik
-# #     unique_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}_{filename}"
-# #     filepath = os.path.join(upload_folder, unique_name)
-# #     file.save(filepath)
-
-# #     # Validasi jumlah kolom
-# #     try:
-# #         if filename.endswith('.csv'):
-# #             df = pd.read_csv(filepath)
-# #         else:
-# #             df = pd.read_excel(filepath)
-# #         if df.shape[1] != REQUIRED_COLUMNS:
-# #             os.remove(filepath)
-# #             return jsonify({"error": f"Dataset harus memiliki {REQUIRED_COLUMNS} kolom, ditemukan {df.shape[1]}"}), 400
-# #     except Exception as e:
-# #         os.remove(filepath)
-# #         return jsonify({"error": f"Gagal membaca file: {str(e)}"}), 400
-
-# #     # Simpan record ke database
-# #     dataset_type = request.form.get("type", None)
-# #     dataset = Dataset(
-# #         filename=filename,
-# #         filepath=filepath,
-# #         type=dataset_type,
-# #         rows=len(df),
-# #         columns=df.shape[1],
-# #         uploaded_at=datetime.utcnow()
-# #     )
-# #     db.session.add(dataset)
-# #     db.session.commit()
-
-# #     return jsonify({
-# #         "dataset_id": dataset.id,
-# #         "filename": filename,
-# #         "rows": dataset.rows,
-# #         "columns": dataset.columns
-# #     }), 201
 
 
 # ── Retrain endpoint (JSON body) ─────────────────────────────────

@@ -19,7 +19,7 @@ from app.utils.scoring import (
     validate_stress_answers, validate_motivation_answers,
     generate_saran, score_to_category,
 )
-from app.ml.predictor import registry, audit_input,prepare_stress_input, prepare_motivasi_input
+from app.ml.predictor import registry, prepare_stress_input, prepare_motivasi_input
 from app.models.mood_diary import MoodEntry, DiaryEntry
 from datetime import datetime
 from app.utils.file_upload import save_profile_picture
