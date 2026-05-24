@@ -1,5 +1,6 @@
 import os
 import uuid
+import time                     # ← tambahkan import time
 from flask import current_app
 from werkzeug.utils import secure_filename
 
@@ -16,15 +17,14 @@ def save_profile_picture(file, nim):
     
     # Buat nama unik: nim_timestamp_uuid.ext
     ext = file.filename.rsplit('.', 1)[1].lower()
-    filename = f"{nim}_{uuid.uuid4().hex}_{int(os.path.timestamp)}.{ext}"
-    # alternatif sederhana:
-    # filename = f"{nim}_{uuid.uuid4().hex}.{ext}"
+    # ✅ Perbaikan: gunakan time.time() bukan os.path.timestamp
+    filename = f"{nim}_{int(time.time())}_{uuid.uuid4().hex}.{ext}"
     
-    upload_dir = current_app.config['UPLOAD_FOLDER']
+    upload_dir = current_app.config['PROFILE_PHOTO_FOLDER']  
     os.makedirs(upload_dir, exist_ok=True)
     
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
     
     # Kembalikan path relatif yang disimpan di DB
-    return f"uploads/profile/{filename}"
+    return os.path.join(upload_dir, filename).replace('\\', '/')

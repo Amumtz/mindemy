@@ -197,15 +197,28 @@ def get_models():
 @admin_bp.route("/models/<int:model_id>/activate", methods=["POST"])
 @admin_required
 def activate_model(model_id: int):
-    model = MLModel.query.get_or_404(model_id)
+    model = MLModel.query.get(model_id)
+    if model is None:
+        return jsonify({"error": "Model tidak ditemukan."}), 404
+
+    # Nonaktifkan semua model lain dengan tipe yang sama
     MLModel.query.filter_by(type=model.type, is_active=True).update({"is_active": False})
+    
+    # Aktifkan model yang dipilih
     model.is_active = True
     db.session.commit()
 
+    # Muat model ke registry (jika file tersedia)
     from app.ml.predictor import registry
-    registry.load(model.type, model.file_path,
-                  model.to_dict() | {"thresholds": model.get_thresholds()})
-    return jsonify({"message": f"Model {model.algorithm} v{model.version} diaktifkan."})
+    try:
+        registry.load(model.type, model.file_path,
+                      model.to_dict() | {"thresholds": model.get_thresholds()})
+    except Exception as e:
+        # Rollback aktivasi jika load gagal, agar tidak terjadi ketidakcocokan
+        db.session.rollback()
+        return jsonify({"error": f"Gagal memuat model: {str(e)}"}), 500
+
+    return jsonify({"message": f"Model {model.algorithm} v{model.version} berhasil diaktifkan."})
 
 
 @admin_bp.route("/models/<int:model_id>", methods=["DELETE"])
@@ -681,3 +694,149 @@ def loaded_models():
         else:
             result[model_type] = {"loaded": False}
     return jsonify(result)
+
+# ============ CREATE DOSEN ============
+@admin_bp.route('/dosen', methods=['POST'])
+@jwt_required()
+def create_dosen():
+    """Admin membuat akun dosen (NIP, nama, username, password, jabatan)"""
+    if current_user.role != 'admin':
+        return jsonify({"error": "Hanya admin yang dapat mengakses"}), 403
+
+    data = request.get_json()
+    nip = data.get('nip')
+    nama = data.get('nama')
+    username = data.get('username')
+    password = data.get('password')
+    jabatan = data.get('jabatan', '')   # optional
+
+    if not all([nip, nama, username, password]):
+        return jsonify({"error": "NIP, nama, username, password wajib diisi"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username sudah digunakan"}), 409
+    if Dosen.query.filter_by(NIP=nip).first():
+        return jsonify({"error": "NIP sudah terdaftar"}), 409
+
+    user = User(username=username, role='dosen')
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()
+
+    dosen = Dosen(NIP=nip, nama_dosen=nama, jabatan=jabatan, Id_User=user.Id_User)
+    db.session.add(dosen)
+    db.session.commit()
+    data = request.get_json()
+    print("Data diterima:", data)
+    jabatan = data.get('jabatan', '')
+    print("Jabatan:", jabatan)
+
+    return jsonify({
+        "message": "Dosen berhasil ditambahkan",
+        "nip": nip,
+        "username": username,
+        "jabatan": jabatan
+    }), 201
+
+# ============ CREATE MAHASISWA ============
+@admin_bp.route('/mahasiswa', methods=['POST'])
+@jwt_required()
+def create_mahasiswa():
+    """Admin membuat akun mahasiswa (NIM, nama, username, password, dan NIP dosen wali)"""
+    if current_user.role != 'admin':
+        return jsonify({"error": "Hanya admin yang dapat mengakses"}), 403
+
+    data = request.get_json()
+    nim = data.get('nim')
+    nama = data.get('nama')
+    username = data.get('username')
+    password = data.get('password')
+    nip_dosen_wali = data.get('nip_dosen_wali')   # NIP dosen wali (string)
+
+    if not all([nim, nama, username, password, nip_dosen_wali]):
+        return jsonify({"error": "NIM, nama, username, password, dan nip_dosen_wali wajib diisi"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username sudah digunakan"}), 409
+    if Mahasiswa.query.filter_by(NIM=nim).first():
+        return jsonify({"error": "NIM sudah terdaftar"}), 409
+
+    # Cek apakah dosen wali ada (berdasarkan NIP)
+    dosen_wali = Dosen.query.filter_by(NIP=nip_dosen_wali).first()
+    if not dosen_wali:
+        return jsonify({"error": "Dosen wali dengan NIP tersebut tidak ditemukan"}), 404
+
+    user = User(username=username, role='mahasiswa')
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()
+
+    mhs = Mahasiswa(
+        NIM=nim,
+        nama_mahasiswa=nama,
+        Id_User=user.Id_User,
+        NIP_doswal=nip_dosen_wali      # kolom di tabel mahasiswa menyimpan NIP (string)
+    )
+    db.session.add(mhs)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Mahasiswa berhasil ditambahkan",
+        "nim": nim,
+        "username": username,
+        "dosen_wali": dosen_wali.nama_dosen
+    }), 201
+
+# ============ GET ALL DOSEN (untuk dropdown di frontend admin) ============
+@admin_bp.route('/dosen', methods=['GET'])
+@jwt_required()
+def get_all_dosen():
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+
+    dosen_list = Dosen.query.all()
+    result = [{
+        "nip": d.NIP,
+        "nama": d.nama_dosen,
+        "jabatan": d.jabatan or ""
+    } for d in dosen_list]
+    return jsonify(result), 200
+
+# ============ GET ALL MAHASISWA (opsional untuk manajemen admin) ============
+@admin_bp.route('/mahasiswa', methods=['GET'])
+@jwt_required()
+def get_all_mahasiswa():
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+
+    mahasiswa_list = Mahasiswa.query.all()
+    result = []
+    for m in mahasiswa_list:
+        # cari nama dosen wali dari NIP_doswal
+        dosen_wali = Dosen.query.filter_by(NIP=m.NIP_doswal).first() if m.NIP_doswal else None
+        result.append({
+            "nim": m.NIM,
+            "nama": m.nama_mahasiswa,
+            "username": m.user.username if m.user else None,
+            "dosen_wali": dosen_wali.nama_dosen if dosen_wali else None,
+            "nip_dosen_wali": m.NIP_doswal
+        })
+    return jsonify(result), 200
+
+
+# ============ DELETE MAHASISWA ============
+@admin_bp.route('/mahasiswa/<nim>', methods=['DELETE'])
+@jwt_required()
+def delete_mahasiswa(nim):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+    mhs = Mahasiswa.query.filter_by(NIM=nim).first()
+    if not mhs:
+        return jsonify({"error": "Mahasiswa tidak ditemukan"}), 404
+    # Hapus juga user-nya? Sesuaikan kebutuhan: jika user dihapus, semua data terkait hilang
+    user = mhs.user
+    db.session.delete(mhs)
+    if user:
+        db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Mahasiswa dan akunnya berhasil dihapus"}), 200

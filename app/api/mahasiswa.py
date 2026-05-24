@@ -497,9 +497,13 @@ def get_foto_profil(nim):
         return jsonify({"error": "Foto profil tidak ditemukan."}), 404
     
     # Path absolut
-    file_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
-    if not os.path.exists(file_path):
+    root_dir = os.path.dirname(current_app.root_path)   # path ke backend/
+    full_path = os.path.join(root_dir, mhs.foto_profil)
+
+    if not os.path.exists(full_path):
+        current_app.logger.error(f"File not found: {full_path}")
         return jsonify({"error": "File foto tidak ada di server."}), 404
+
     
     from flask import send_file
-    return send_file(file_path)
+    return send_file(full_path)
