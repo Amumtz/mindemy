@@ -696,7 +696,7 @@ def loaded_models():
     return jsonify(result)
 
 # ============ CREATE DOSEN ============
-@admin_bp.route('/dosen', methods=['POST'])
+@admin_bp.route('/dosen/add', methods=['POST'])
 @jwt_required()
 def create_dosen():
     """Admin membuat akun dosen (NIP, nama, username, password, jabatan)"""
@@ -739,7 +739,7 @@ def create_dosen():
     }), 201
 
 # ============ CREATE MAHASISWA ============
-@admin_bp.route('/mahasiswa', methods=['POST'])
+@admin_bp.route('/mahasiswa/add', methods=['POST'])
 @jwt_required()
 def create_mahasiswa():
     """Admin membuat akun mahasiswa (NIM, nama, username, password, dan NIP dosen wali)"""
@@ -788,7 +788,7 @@ def create_mahasiswa():
     }), 201
 
 # ============ GET ALL DOSEN (untuk dropdown di frontend admin) ============
-@admin_bp.route('/dosen', methods=['GET'])
+@admin_bp.route('/dosen/all', methods=['GET'])
 @jwt_required()
 def get_all_dosen():
     if current_user.role != 'admin':
@@ -803,7 +803,7 @@ def get_all_dosen():
     return jsonify(result), 200
 
 # ============ GET ALL MAHASISWA (opsional untuk manajemen admin) ============
-@admin_bp.route('/mahasiswa', methods=['GET'])
+@admin_bp.route('/mahasiswa/all', methods=['GET'])
 @jwt_required()
 def get_all_mahasiswa():
     if current_user.role != 'admin':
