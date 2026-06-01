@@ -70,61 +70,40 @@ def me():
     return jsonify(current_user.to_dict() | extra)
 
 
-# @auth_bp.route("/register", methods=["POST"])
-# def register():
-#     data = request.get_json(silent=True) or {}
+@auth_bp.route("/reset-password", methods=["POST"])
+def reset_password():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    # Terima identity atau nim/nip
+    identity = data.get("identity") or data.get("nim") or data.get("nip")
+    if identity:
+        identity = str(identity).strip()
+    new_password = data.get("new_password", "")
 
-#     # Ambil field identitas (bisa dikirim sebagai "identity" atau "nim" / "nip")
-#     identity = data.get("identity") or data.get("nim") or data.get("nip")
-#     username = data.get("username", "").strip()
-#     password = data.get("password", "")
+    if not username or not identity or not new_password:
+        return jsonify({"error": "Username, NIM/NIP, dan password baru wajib diisi."}), 400
+    if len(new_password) < 6:
+        return jsonify({"error": "Password baru minimal 6 karakter."}), 400
 
-#     if not identity or not username or not password:
-#         return jsonify({"error": "NIM/NIP, username, dan password wajib diisi."}), 400
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "Username tidak ditemukan."}), 404
 
-    
-#     if identity.isdigit() and len(identity) <= 12:
-#         role = "dosen"
-#         nip = identity
-#         nim = None
-#     else:
-#         role = "mahasiswa"
-#         nim = identity
-#         nip = None
+    # Verifikasi identity (NIM/NIP) berdasarkan role
+    if user.role == "mahasiswa":
+        if not user.mahasiswa or user.mahasiswa.NIM != identity:
+            return jsonify({"error": "NIM tidak cocok dengan username tersebut."}), 403
+    elif user.role == "dosen":
+        if not user.dosen or user.dosen.NIP != identity:
+            return jsonify({"error": "NIP tidak cocok dengan username tersebut."}), 403
+    else:
+        return jsonify({"error": "Role tidak valid."}), 400
 
-#     if User.query.filter_by(username=username).first():
-#         return jsonify({"error": "Username sudah digunakan."}), 409
+    # Reset password
+    user.set_password(new_password)
+    db.session.commit()
 
-#     # Buat user
-#     user = User(username=username, role=role)
-#     user.set_password(password)
-#     db.session.add(user)
-#     db.session.flush()
-
-#     # Buat profil dasar (hanya NIM/NIP, field lain null)
-#     if role == "mahasiswa":
-#         mhs = Mahasiswa(
-#             NIM=nim,
-#             nama_mahasiswa=None,   # akan diisi nanti
-#             Id_User=user.Id_User
-#         )
-#         db.session.add(mhs)
-#     else:
-#         dsn = Dosen(
-#             NIP=nip,
-#             nama_dosen=None,
-#             Id_User=user.Id_User
-#         )
-#         db.session.add(dsn)
-
-#     db.session.commit()
-
-#     # Langsung login? Atau beri pesan sukses & minta login.
-#     return jsonify({
-#         "message": "Registrasi berhasil. Silakan login untuk melengkapi profil.",
-#         "user_id": user.Id_User,
-#         "role": role
-#     }), 201
+    return jsonify({"message": "Password berhasil direset. Silakan login dengan password baru."})
 
 # ── Helpers ──────────────────────────────────────────────────────
 
