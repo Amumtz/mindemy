@@ -633,6 +633,7 @@ def get_foto_profil(nim):
     if not file_path:
         print(f"❌ Foto tidak ditemukan. DB path: {mhs.foto_profil}")
         return jsonify({"error": "File foto tidak ada di server."}), 404
+
     
     from flask import send_file
     return send_file(file_path, mimetype='image/jpeg')

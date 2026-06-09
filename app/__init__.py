@@ -2,6 +2,7 @@
 import os
 import sys
 from flask import Flask
+from flask_cors import CORS
 from app.config import config_by_name
 from app.extensions import db, jwt, cors, celery, migrate
 
@@ -41,6 +42,12 @@ def create_app(config_name='development'):
     app.register_blueprint(dosen_bp, url_prefix='/api/dosen')
     app.register_blueprint(kuesioner_bp, url_prefix='/api/kuesioner')  # ← TAMBAHKAN
 
+    CORS(app, 
+         supports_credentials=True,
+         origins=["http://localhost:5173", "http://localhost:3000"],  # ganti dengan origin frontend
+         allow_headers=["Content-Type", "Authorization"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+    
     # Hanya load model jika bukan migrasi
     if not any(cmd in sys.argv for cmd in ['db', 'shell']):
         with app.app_context():
