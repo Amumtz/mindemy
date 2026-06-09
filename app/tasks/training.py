@@ -91,7 +91,7 @@ def train_model(history_id, csv_path, model_type, hyperparams=None, models_folde
 
         # ── 6. Split ─────────────────────────────────────────────
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y[:, 0]
+            X, y, test_size=0.3, random_state=42, stratify=y[:, 0]
         )
 
         # ── 7. Hyperparams ───────────────────────────────────────
@@ -103,8 +103,8 @@ def train_model(history_id, csv_path, model_type, hyperparams=None, models_folde
             params.update(hyperparams['params'])
 
         base_rf = RandomForestClassifier(**params)
-        # ClassifierChain dengan order [1,0] (motivasi dulu, lalu stress)
-        chain_rf = ClassifierChain(base_rf, order=[1, 0], random_state=42)
+        # ClassifierChain dengan order [0,1] (stres dulu, lalu motivasi)
+        chain_rf = ClassifierChain(base_rf, order=[0, 1], random_state=42)
 
         pipeline_chain = Pipeline([
             ('preprocess', preprocessor),
@@ -158,7 +158,7 @@ def train_model(history_id, csv_path, model_type, hyperparams=None, models_folde
                 'durasi_tidur': cats_tidur
             },
             'params': params,
-            'chain_order': [1, 0]      # urutan motivasi dulu lalu stres
+            'chain_order': [0, 1]      # urutan stres dulu lalu motivasi
         }
         joblib.dump(artifact, model_path)
 

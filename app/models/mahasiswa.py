@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.extensions import db
 
 class Mahasiswa(db.Model):
@@ -15,7 +17,7 @@ class Mahasiswa(db.Model):
     # Tambahan kolom demografi (jika sudah ditambahkan via migrasi)
     angkatan = db.Column(db.String(10))
     gender = db.Column(db.String(10))
-    usia = db.Column(db.Integer)
+    tanggal_lahir = db.Column(db.Date)
     freq_olahraga = db.Column(db.String(20))
     durasi_tidur = db.Column(db.String(20))
 
@@ -25,6 +27,15 @@ class Mahasiswa(db.Model):
     dosen_wali = db.relationship("Dosen", back_populates="mahasiswa_wali")
     riwayat = db.relationship("RiwayatSkrining", back_populates="mahasiswa")
     catatan = db.relationship("CatatanKonseling", back_populates="mahasiswa")
+
+    @property
+    def usia(self):
+        if not self.tanggal_lahir:
+            return None
+        today = date.today()
+        return today.year - self.tanggal_lahir.year - (
+            (today.month, today.day) < (self.tanggal_lahir.month, self.tanggal_lahir.day)
+        )
 
     def to_dict(self):
         return {
