@@ -5,6 +5,7 @@ POST /api/auth/login
 POST /api/auth/refresh
 POST /api/auth/logout
 POST /api/auth/register   (admin only, for creating accounts)
+POST /api/auth/activation  (BARU - untuk aktivasi akun mahasiswa)
 GET  /api/auth/me
 """
 
@@ -14,7 +15,7 @@ from flask_jwt_extended import (
     jwt_required, current_user, get_jwt,
 )
 from app.extensions import db
-from app.models import User, Mahasiswa, Dosen
+from app.models import User, Mahasiswa, Dosen, Jurusan
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -32,8 +33,19 @@ def login():
         return jsonify({"error": "Username dan password wajib diisi."}), 400
 
     user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
+    
+    if not user:
         return jsonify({"error": "Username atau password salah."}), 401
+    
+    if not user.check_password(password):
+        return jsonify({"error": "Username atau password salah."}), 401
+    
+    # ============ CEK STATUS AKTIVASI ============
+    if not user.is_activated:
+        return jsonify({
+            "error": "Akun belum diaktivasi. Silakan aktivasi terlebih dahulu."
+        }), 403
+    # =============================================
 
     # Build extra claims with profile info
     extra = _build_extra_claims(user)
@@ -125,6 +137,82 @@ def me():
 #         "user_id": user.Id_User,
 #         "role": role
 #     }), 201
+
+
+# ============ ENDPOINT AKTIVASI ============
+
+@auth_bp.route("/activation", methods=["POST"])
+def activation():
+    """
+    Endpoint untuk aktivasi akun mahasiswa (verifikasi username & password yang sudah ada)
+    Request body: { "username": "xxx", "password": "xxx" }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        username = data.get("username", "").strip()
+        password = data.get("password", "")
+        
+        if not username or not password:
+            return jsonify({"error": "Username dan password wajib diisi."}), 400
+        
+        # Cari user berdasarkan username
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            return jsonify({"error": "Akun tidak ditemukan. Pastikan username Anda sudah terdaftar."}), 404
+        
+        # CEK APAKAH SUDAH AKTIVASI
+        if user.is_activated:
+            return jsonify({"error": "Akun sudah diaktivasi sebelumnya. Silakan login."}), 400
+        
+        # Verifikasi password
+        if not user.check_password(password):
+            return jsonify({"error": "Password salah. Periksa kembali."}), 401
+        
+        # Tandai user sebagai sudah diaktivasi
+        user.is_activated = True
+        
+        # Ambil data mahasiswa
+        nim = None
+        nama = None
+        jurusan = None
+        angkatan = None
+        kelas = None
+        nip_doswal = None
+        
+        if user.role == "mahasiswa" and user.mahasiswa:
+            nim = user.mahasiswa.NIM
+            nama = user.mahasiswa.nama_mahasiswa
+            kelas = user.mahasiswa.kelas
+            angkatan = user.mahasiswa.angkatan
+            nip_doswal = user.mahasiswa.NIP_doswal
+            
+            # Ambil nama jurusan dari tabel jurusan
+            if user.mahasiswa.id_jurusan:
+                jurusan_obj = Jurusan.query.filter_by(Id_Jurusan=user.mahasiswa.id_jurusan).first()
+                if jurusan_obj:
+                    jurusan = jurusan_obj.nama_jurusan
+        
+        db.session.commit()
+        
+        # Kembalikan data user
+        return jsonify({
+            "message": "Aktivasi berhasil",
+            "user": {
+                "username": user.username,
+                "NIM": nim,
+                "nama": nama or user.username,
+                "jurusan": jurusan or "",
+                "angkatan": angkatan or "",
+                "kelas": kelas or "",
+                "nip_doswal": nip_doswal or "",
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
+
 
 # ── Helpers ──────────────────────────────────────────────────────
 

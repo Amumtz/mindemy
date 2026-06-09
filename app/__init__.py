@@ -34,11 +34,13 @@ def create_app(config_name='development'):
     from app.api.admin import admin_bp
     from app.api.mahasiswa import mahasiswa_bp
     from app.api.dosen import dosen_bp
+    from app.api.kuesioner import kuesioner_bp  # ← TAMBAHKAN
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(mahasiswa_bp, url_prefix='/api/mahasiswa')
     app.register_blueprint(dosen_bp, url_prefix='/api/dosen')
+    app.register_blueprint(kuesioner_bp, url_prefix='/api/kuesioner')  # ← TAMBAHKAN
 
     CORS(app, 
          supports_credentials=True,
