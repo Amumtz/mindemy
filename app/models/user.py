@@ -6,9 +6,10 @@ class User(db.Model):
 
     Id_User = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
+    password = db.Column(db.String(255), nullable=False)  # NOT NULL - password sudah ada dari admin
     role = db.Column(db.Enum("admin", "dosen", "mahasiswa"), nullable=False)
     created_at = db.Column(db.DateTime)
+    is_activated = db.Column(db.Boolean, default=False)  # TAMBAHKAN: field untuk status aktivasi
 
     # Relationship ke Mahasiswa (one-to-one)
     mahasiswa = db.relationship(
@@ -37,5 +38,6 @@ class User(db.Model):
             "Id_User": self.Id_User,
             "username": self.username,
             "role": self.role,
-            "created_at": self.created_at.isoformat() if self.created_at else None
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "is_activated": self.is_activated,
         }
