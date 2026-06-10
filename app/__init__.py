@@ -10,6 +10,9 @@ def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
 
+    if config_name == 'production' and not app.config.get('SQLALCHEMY_DATABASE_URI'):
+        raise ValueError("DATABASE_URL environment variable is not set for production")
+
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
@@ -20,14 +23,6 @@ def create_app(config_name='development'):
         return User.query.filter_by(Id_User=int(identity)).one_or_none()
 
     cors.init_app(app, origins=app.config['CORS_ORIGINS'])
-
-    # Hanya inisialisasi Celery jika TIDAK menjalankan perintah migrasi
-    # dan tidak sedang menjalankan flask shell (opsional)
-    # if not any(cmd in sys.argv for cmd in ['db', 'shell']):
-    #     from app.tasks.training_tasks import make_celery, register_train_task
-    #     global celery
-    #     celery = make_celery(app)
-    #     register_train_task(celery, app)
 
     # Register blueprints
     from app.api.auth import auth_bp
@@ -58,3 +53,7 @@ def create_app(config_name='development'):
                 app.logger.warning(f"Gagal memuat model ML: {e} (mungkin tabel models belum ada)")
 
     return app
+
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['MODELS_FOLDER'], exist_ok=True)
+os.makedirs(app.config['PROFILE_PHOTO_FOLDER'], exist_ok=True)
