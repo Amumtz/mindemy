@@ -2,7 +2,8 @@
 blueprints/admin.py (app/api/admin.py)
 ───────────────────────────────────────────────
 Endpoint administrator: statistik, manajemen model,
-upload dataset, trigger training, monitoring.
+upload dataset, trigger training, monitoring,
+manajemen mahasiswa & dosen (CRUD).
 """
 
 import os
@@ -45,49 +46,23 @@ def admin_required(fn):
     return wrapper
 
 
-# ── Dashboard stats (tambah total skrining hari ini) ─────────────
+# ── Dashboard stats ─────────────────────────────────────────────
 @admin_bp.route("/dashboard-stats", methods=["GET"])
 @admin_required
 def dashboard_stats():
-    total_mhs   = Mahasiswa.query.count()
+    total_mhs   = db.session.query(func.count(Mahasiswa.NIM)).scalar()
     total_dosen = Dosen.query.count()
     total_skrining = RiwayatSkrining.query.count()
 
-    # Total skrining hari ini
     today = date.today()
     total_skrining_hari_ini = RiwayatSkrining.query.filter(
         cast(RiwayatSkrining.tanggal_skrining, Date) == today
     ).count()
 
     start_of_week = today - timedelta(days=today.weekday())
-
     total_skrining_minggu_ini = RiwayatSkrining.query.filter(
         cast(RiwayatSkrining.tanggal_skrining, Date) >= start_of_week
     ).count()
-
-    # ── 2. Tren harian (7 hari terakhir) ──
-    tujuh_hari_lalu = datetime.utcnow() - timedelta(days=7)
-
-    daily_data = (
-        db.session.query(
-            cast(RiwayatSkrining.tanggal_skrining, Date).label("tgl"),
-            func.avg(RiwayatSkrining.score_stress).label("avg_stress"),
-            func.avg(RiwayatSkrining.score_sdi).label("avg_sdi")
-        )
-        .filter(RiwayatSkrining.tanggal_skrining >= tujuh_hari_lalu)
-        .group_by("tgl")
-        .order_by("tgl")
-        .all()
-    )
-
-    daily_trend = [
-        {
-            "date": str(tgl),
-            "avg_stress": round(float(avg_stress), 2) if avg_stress else 0,
-            "avg_sdi": round(float(avg_sdi), 2) if avg_sdi else 0
-        }
-        for tgl, avg_stress, avg_sdi in daily_data
-    ]
 
     sudah_skrining = db.session.query(func.count(func.distinct(RiwayatSkrining.NIM))).scalar()
 
@@ -110,8 +85,8 @@ def dashboard_stats():
     for row in latest:
         if row.tingkat_stres:    stress_dist[row.tingkat_stres]     += 1
         if row.tingkat_motivasi: motivasi_dist[row.tingkat_motivasi] += 1
-    
-        # ── 1. Distribusi per jurusan (mahasiswa sudah skrining) ──
+
+    # ── 1. Distribusi per jurusan ──
     try:
         jurusan_query = (
             db.session.query(
@@ -119,7 +94,7 @@ def dashboard_stats():
                 func.count(distinct(RiwayatSkrining.NIM)).label("jumlah")
             )
             .join(Mahasiswa, RiwayatSkrining.NIM == Mahasiswa.NIM)
-            .join(Jurusan, Mahasiswa.id_jurusan == Jurusan.Id_Jurusan)  # perbaikan: Id_Jurusan # perbaikan: Id_Jurusan
+            .join(Jurusan, Mahasiswa.id_jurusan == Jurusan.Id_Jurusan)
             .group_by(Jurusan.nama_jurusan)
             .all()
         )
@@ -128,19 +103,16 @@ def dashboard_stats():
         current_app.logger.error(f"Gagal query jurusan_distribution: {e}")
         jurusan_distribution = []
 
-    # ── 2. Tren per bulan (6 bulan terakhir) ──
+    # ── 2. Tren per bulan (total + distribusi) ──
     try:
-        # Ambil 6 bulan terakhir dari hari ini
-        today = datetime.utcnow()
-        start_date = today - timedelta(days=180)  # pendekatan cepat
+        today_dt = datetime.utcnow()
+        start_date = today_dt - timedelta(days=180)
 
-        # Group by tahun + bulan (kompatibel semua database)
-        daily_data = (
+        monthly_total = (
             db.session.query(
                 extract('year', RiwayatSkrining.tanggal_skrining).label('tahun'),
                 extract('month', RiwayatSkrining.tanggal_skrining).label('bulan'),
-                func.avg(RiwayatSkrining.score_stress).label('avg_stress'),
-                func.avg(RiwayatSkrining.score_sdi).label('avg_sdi')
+                func.count(RiwayatSkrining.Id_skrining).label('total')
             )
             .filter(RiwayatSkrining.tanggal_skrining >= start_date)
             .group_by('tahun', 'bulan')
@@ -148,20 +120,58 @@ def dashboard_stats():
             .all()
         )
 
+        stress_monthly = (
+            db.session.query(
+                extract('year', RiwayatSkrining.tanggal_skrining).label('tahun'),
+                extract('month', RiwayatSkrining.tanggal_skrining).label('bulan'),
+                RiwayatSkrining.tingkat_stres,
+                func.count(RiwayatSkrining.Id_skrining).label('jumlah')
+            )
+            .filter(RiwayatSkrining.tanggal_skrining >= start_date)
+            .group_by('tahun', 'bulan', RiwayatSkrining.tingkat_stres)
+            .order_by('tahun', 'bulan')
+            .all()
+        )
+
+        motivasi_monthly = (
+            db.session.query(
+                extract('year', RiwayatSkrining.tanggal_skrining).label('tahun'),
+                extract('month', RiwayatSkrining.tanggal_skrining).label('bulan'),
+                RiwayatSkrining.tingkat_motivasi,
+                func.count(RiwayatSkrining.Id_skrining).label('jumlah')
+            )
+            .filter(RiwayatSkrining.tanggal_skrining >= start_date)
+            .group_by('tahun', 'bulan', RiwayatSkrining.tingkat_motivasi)
+            .order_by('tahun', 'bulan')
+            .all()
+        )
+
         daily_trend = []
-        for tahun, bulan, avg_s, avg_sdi in daily_data:
-            if tahun and bulan:
-                bulan_str = f"{int(tahun)}-{int(bulan):02d}"
-                daily_trend.append({
-                    "date": bulan_str,
-                    "avg_stress": round(float(avg_s), 2) if avg_s is not None else 0,
-                    "avg_sdi": round(float(avg_sdi), 2) if avg_sdi is not None else 0
-                })
+        for tahun, bulan, total in monthly_total:
+            bln_str = f"{int(tahun)}-{int(bulan):02d}"
+            s_dist = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
+            for t, b, level, jml in stress_monthly:
+                if t == tahun and b == bulan and level in s_dist:
+                    s_dist[level] = jml
+            m_dist = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
+            for t, b, level, jml in motivasi_monthly:
+                if t == tahun and b == bulan and level in m_dist:
+                    m_dist[level] = jml
+
+            daily_trend.append({
+                "date": bln_str,
+                "total_skrining": total,
+                "stress_rendah": s_dist["Rendah"],
+                "stress_sedang": s_dist["Sedang"],
+                "stress_tinggi": s_dist["Tinggi"],
+                "motivasi_rendah": m_dist["Rendah"],
+                "motivasi_sedang": m_dist["Sedang"],
+                "motivasi_tinggi": m_dist["Tinggi"],
+            })
     except Exception as e:
         current_app.logger.error(f"Gagal query daily_trend: {e}")
         daily_trend = []
 
-    
     active_stress = MLModel.query.filter_by(type="stress",   is_active=True).first()
     active_motiv  = MLModel.query.filter_by(type="motivasi", is_active=True).first()
 
@@ -169,8 +179,8 @@ def dashboard_stats():
         "total_mahasiswa":  total_mhs,
         "total_dosen":      total_dosen,
         "total_skrining":   total_skrining,
-        "total_skrining_minggu_ini": total_skrining_minggu_ini, 
-        "total_skrining_hari_ini": total_skrining_hari_ini,   # <-- TAMBAHAN
+        "total_skrining_minggu_ini": total_skrining_minggu_ini,
+        "total_skrining_hari_ini": total_skrining_hari_ini,
         "sudah_skrining":   sudah_skrining,
         "belum_skrining":   total_mhs - sudah_skrining,
         "stress_dist":      stress_dist,
@@ -201,24 +211,34 @@ def activate_model(model_id: int):
     if model is None:
         return jsonify({"error": "Model tidak ditemukan."}), 404
 
-    # Nonaktifkan semua model lain dengan tipe yang sama
     MLModel.query.filter_by(type=model.type, is_active=True).update({"is_active": False})
-    
-    # Aktifkan model yang dipilih
     model.is_active = True
     db.session.commit()
 
-    # Muat model ke registry (jika file tersedia)
     from app.ml.predictor import registry
     try:
         registry.load(model.type, model.file_path,
                       model.to_dict() | {"thresholds": model.get_thresholds()})
     except Exception as e:
-        # Rollback aktivasi jika load gagal, agar tidak terjadi ketidakcocokan
         db.session.rollback()
         return jsonify({"error": f"Gagal memuat model: {str(e)}"}), 500
 
     return jsonify({"message": f"Model {model.algorithm} v{model.version} berhasil diaktifkan."})
+
+
+def _find_model_file(file_path):
+    """Cari file model dengan beberapa kemungkinan path."""
+    possible = [
+        os.path.join(os.getcwd(), file_path),
+        file_path,
+        os.path.join(current_app.root_path, file_path),
+        os.path.join(os.path.dirname(current_app.root_path), file_path),
+        os.path.abspath(file_path)
+    ]
+    for p in possible:
+        if os.path.exists(p):
+            return p
+    return None
 
 
 @admin_bp.route("/models/<int:model_id>", methods=["DELETE"])
@@ -227,39 +247,43 @@ def delete_model(model_id: int):
     model = MLModel.query.get_or_404(model_id)
     if model.is_active:
         return jsonify({"error": "Tidak dapat menghapus model yang sedang aktif."}), 400
-    if os.path.exists(model.file_path):
-        os.remove(model.file_path)
+
+    file_to_delete = _find_model_file(model.file_path)
+    if file_to_delete:
+        try:
+            os.remove(file_to_delete)
+        except Exception as e:
+            current_app.logger.error(f"Gagal menghapus file model: {e}")
+
     db.session.delete(model)
     db.session.commit()
     return jsonify({"message": "Model berhasil dihapus."})
+
 
 @admin_bp.route("/models/<int:model_id>/download", methods=["GET"])
 @admin_required
 def download_model(model_id: int):
     model = MLModel.query.get_or_404(model_id)
-    if not os.path.exists(model.file_path):
+    file_path = _find_model_file(model.file_path)
+    if not file_path:
         return jsonify({"error": "File model tidak ditemukan"}), 404
-    return send_file(model.file_path, as_attachment=True,
-                     download_name=os.path.basename(model.file_path))
+
+    download_name = os.path.basename(file_path)
+    if not download_name.endswith('.joblib'):
+        download_name += '.joblib'
+
+    return send_file(file_path, as_attachment=True,
+                     download_name=download_name,
+                     mimetype='application/octet-stream')
 
 
-
-# ── Retrain endpoint (JSON body) ─────────────────────────────────
+# ── Retrain ─────────────────────────────────────────────────────
 @admin_bp.route("/retrain", methods=["POST"])
 @admin_required
 def retrain():
-    """
-    Trigger training dengan file yang diunggah langsung.
-    Form fields:
-      file: file CSV/Excel (75 kolom)
-      type: "stress" | "motivasi"
-      hyperparams: JSON string (optional)
-    """
     file = request.files.get("file")
     if not file:
         return jsonify({"error": "File tidak ditemukan"}), 400
-
-    # Validasi extensi
     if not allowed_file(file.filename):
         return jsonify({"error": "Format file tidak didukung (hanya .csv, .xlsx)"}), 415
 
@@ -267,7 +291,6 @@ def retrain():
     if not model_type or model_type not in ("stress", "motivasi"):
         return jsonify({"error": "type harus 'stress' atau 'motivasi'"}), 400
 
-    # Simpan file sementara
     upload_folder = current_app.config.get("UPLOAD_FOLDER", "storage/uploads")
     os.makedirs(upload_folder, exist_ok=True)
     filename = secure_filename(file.filename)
@@ -275,7 +298,6 @@ def retrain():
     filepath = os.path.join(upload_folder, unique_name)
     file.save(filepath)
 
-    # Validasi jumlah kolom
     try:
         if filename.endswith('.csv'):
             df = pd.read_csv(filepath)
@@ -288,7 +310,6 @@ def retrain():
         os.remove(filepath)
         return jsonify({"error": f"Gagal membaca file: {str(e)}"}), 400
 
-    # Hyperparams (optional)
     hyperparams = None
     hyperparams_str = request.form.get("hyperparams")
     if hyperparams_str:
@@ -297,7 +318,6 @@ def retrain():
         except:
             pass
 
-    # Buat record TrainingHistory
     task_id = str(uuid.uuid4())
     history = TrainingHistory(
         status="queued",
@@ -309,7 +329,6 @@ def retrain():
     db.session.add(history)
     db.session.commit()
 
-    # Panggil Celery task (atau fallback sync)
     celery_task = current_app.extensions.get("celery_train_task")
     if celery_task:
         celery_task.apply_async(
@@ -323,7 +342,6 @@ def retrain():
             task_id=task_id
         )
     else:
-        # Fallback synchronous (untuk development)
         from app.tasks.training import train_model
         train_model(
             history_id=history.id,
@@ -339,13 +357,10 @@ def retrain():
         "message": "Proses pelatihan telah dimasukkan ke antrian"
     }), 202
 
+
 @admin_bp.route("/retrain-status", methods=["GET"])
 @admin_required
 def retrain_status():
-    """
-    Polling status training dari database.
-    Parameter: task_id
-    """
     task_id = request.args.get("task_id")
     if not task_id:
         return jsonify({"error": "task_id diperlukan"}), 400
@@ -354,7 +369,6 @@ def retrain_status():
     if not history:
         return jsonify({"error": "Task tidak ditemukan"}), 404
 
-    # Parse progress_message jika ada
     progress = 0
     message = ""
     if history.progress_message:
@@ -374,7 +388,7 @@ def retrain_status():
     })
 
 
-# ── Training history & status (Celery) ──────────────────────────
+# ── Training history ────────────────────────────────────────────
 @admin_bp.route("/training-history", methods=["GET"])
 @admin_required
 def training_history():
@@ -386,7 +400,6 @@ def training_history():
     end_date = request.args.get("end_date")
 
     q = TrainingHistory.query
-
     if status:
         q = q.filter(TrainingHistory.status == status)
     if search:
@@ -407,7 +420,6 @@ def training_history():
     q = q.order_by(TrainingHistory.created_at.desc())
     pag = q.paginate(page=page, per_page=per, error_out=False)
 
-    # Perkaya dengan info model terkait
     data = []
     for h in pag.items:
         h_dict = h.to_dict()
@@ -419,14 +431,10 @@ def training_history():
                 h_dict["model_type"] = model.type
                 h_dict["is_active"] = model.is_active
             else:
-                h_dict["algorithm"] = None
-                h_dict["version"] = None
-                h_dict["model_type"] = None
+                h_dict["algorithm"] = h_dict["version"] = h_dict["model_type"] = None
                 h_dict["is_active"] = False
         else:
-            h_dict["algorithm"] = None
-            h_dict["version"] = None
-            h_dict["model_type"] = None
+            h_dict["algorithm"] = h_dict["version"] = h_dict["model_type"] = None
             h_dict["is_active"] = False
         data.append(h_dict)
 
@@ -437,12 +445,10 @@ def training_history():
         "total_pages": pag.pages,
     })
 
+
 @admin_bp.route("/training-status/<task_id>", methods=["GET"])
 @admin_required
 def training_status(task_id: str):
-    """
-    Status langsung dari Celery (untuk debug).
-    """
     task = current_app.extensions.get("celery_train_task")
     if task is None:
         return jsonify({"error": "Celery tidak tersedia."}), 503
@@ -456,7 +462,7 @@ def training_status(task_id: str):
     })
 
 
-# ── Data collector (tambah filter jurusan & angkatan) ────────────
+# ── Data Collector ──────────────────────────────────────────────
 @admin_bp.route("/data-collector", methods=["GET"])
 @admin_required
 def data_collector():
@@ -468,14 +474,12 @@ def data_collector():
     level    = request.args.get("level")
     search   = request.args.get("search", "")
 
-    # Base query
     q = db.session.query(RiwayatSkrining, Mahasiswa, Jurusan).join(
         Mahasiswa, RiwayatSkrining.NIM == Mahasiswa.NIM
     ).join(
         Jurusan, Mahasiswa.id_jurusan == Jurusan.Id_Jurusan, isouter=True
     )
 
-    # Terapkan filter
     if level and mtype == "stress":
         q = q.filter(RiwayatSkrining.tingkat_stres == level)
     elif level and mtype == "motivasi":
@@ -490,23 +494,28 @@ def data_collector():
             (Mahasiswa.NIM.ilike(f"%{search}%"))
         )
 
-    # Hitung statistik cards (berdasarkan filter yang sama)
     total_filtered = q.count()
     today = date.today()
     today_filtered = q.filter(cast(RiwayatSkrining.tanggal_skrining, Date) == today).count()
-    agg = q.with_entities(
-        func.avg(RiwayatSkrining.score_stress).label("avg_stress"),
-        func.avg(RiwayatSkrining.score_sdi).label("avg_sdi")
-    ).first()
-    avg_stress = round(float(agg.avg_stress), 1) if agg and agg.avg_stress else 0
-    avg_motivasi = round(float(agg.avg_sdi), 1) if agg and agg.avg_sdi else 0
 
-    # Paginasi
+    # Distribusi tingkat
+    stress_counts = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
+    motivasi_counts = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
+    if total_filtered > 0:
+        dist_query = q.with_entities(
+            RiwayatSkrining.tingkat_stres,
+            RiwayatSkrining.tingkat_motivasi
+        ).all()
+        for stres, motivasi in dist_query:
+            if stres in stress_counts:
+                stress_counts[stres] += 1
+            if motivasi in motivasi_counts:
+                motivasi_counts[motivasi] += 1
+
     pag = q.order_by(RiwayatSkrining.tanggal_skrining.desc()).paginate(
         page=page, per_page=per, error_out=False
     )
 
-    # Bentuk data baris
     rows = []
     for (skrining, mhs, jur) in pag.items:
         jawaban = skrining.get_jawaban()
@@ -537,29 +546,25 @@ def data_collector():
         "data": rows,
         "total": total_filtered,
         "today_total": today_filtered,
-        "avg_stress": avg_stress,
-        "avg_motivasi": avg_motivasi,
+        "stress_distribution": stress_counts,
+        "motivasi_distribution": motivasi_counts,
         "page": pag.page,
         "total_pages": pag.pages,
     })
 
 
-# ── Export data (perbaiki join Jurusan) ──────────────────────────
+# ── Export ──────────────────────────────────────────────────────
 @admin_bp.route("/export", methods=["GET"])
 @admin_required
 def export_data():
     fmt = request.args.get("format", "csv").lower()
     angkatan = request.args.get("angkatan")
     jurusan_nama = request.args.get("jurusan")
+    gender = request.args.get("gender")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
-    # ── 1. Ambil data dari database (sama seperti sebelumnya) ──
-    query = db.session.query(
-        RiwayatSkrining,
-        Mahasiswa,
-        Jurusan
-    ).join(
+    query = db.session.query(RiwayatSkrining, Mahasiswa, Jurusan).join(
         Mahasiswa, RiwayatSkrining.NIM == Mahasiswa.NIM
     ).join(
         Jurusan, Mahasiswa.id_jurusan == Jurusan.Id_Jurusan, isouter=True
@@ -569,6 +574,8 @@ def export_data():
         query = query.filter(Mahasiswa.angkatan == angkatan)
     if jurusan_nama:
         query = query.filter(Jurusan.nama_jurusan == jurusan_nama)
+    if gender:
+        query = query.filter(Mahasiswa.gender == gender)
     if start_date:
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -603,43 +610,31 @@ def export_data():
 
     df_db = pd.DataFrame(db_rows)
 
-    # ── 2. Baca dataset asli (DATA_LATIH.xlsx) ──
-    #    Sesuaikan path absolut atau relatif terhadap project root
     initial_dataset_path = os.path.join(
         current_app.root_path, "..", "storage", "dataset", "DATA_LATIH.xlsx"
     )
     df_initial = pd.DataFrame()
     try:
         df_initial = pd.read_excel(initial_dataset_path)
-        # Pastikan hanya ambil kolom yang diperlukan (sama seperti di atas)
         required_cols = ["Jurusan", "Angkatan", "Gender", "Usia", "IPK",
                          "freq_olahraga", "durasi_tidur"] + \
                         [f"S{i}" for i in range(1, 41)] + \
                         [f"M{i}" for i in range(1, 29)]
-        # Filter kolom yang ada di dataset asli (jika ada yang kurang, isi 0)
         for col in required_cols:
             if col not in df_initial.columns:
                 df_initial[col] = 0
         df_initial = df_initial[required_cols]
-
-        # Terapkan filter angkatan & jurusan ke dataset asli juga
         if angkatan:
-            # Pastikan tipe data cocok (mungkin string)
             df_initial = df_initial[df_initial["Angkatan"].astype(str) == str(angkatan)]
         if jurusan_nama:
             df_initial = df_initial[df_initial["Jurusan"].astype(str) == str(jurusan_nama)]
     except Exception as e:
         current_app.logger.warning(f"Gagal membaca dataset asli: {e}")
-        # Lanjutkan tanpa dataset asli jika gagal
 
-    # ── 3. Gabungkan kedua DataFrame ──
     df_merged = pd.concat([df_initial, df_db], ignore_index=True)
-
-    # Jika tidak ada data sama sekali
     if df_merged.empty:
         return jsonify({"error": "Tidak ada data yang cocok."}), 404
 
-    # Urutkan kolom sesuai format yang diinginkan
     column_order = (
         ["Jurusan", "Angkatan", "Gender", "Usia", "IPK",
          "freq_olahraga", "durasi_tidur"] +
@@ -648,12 +643,11 @@ def export_data():
     )
     df_merged = df_merged[column_order]
 
-    # ── 4. Kirim sebagai file ──
     buf = io.BytesIO()
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
     if fmt == "excel":
-        df_merged.to_excel(buf, index=False, engine='openpyxl');
+        df_merged.to_excel(buf, index=False, engine='openpyxl')
         buf.seek(0)
         return send_file(
             buf,
@@ -661,7 +655,7 @@ def export_data():
             as_attachment=True,
             download_name=f"dataset_gabungan_{timestamp}.xlsx"
         )
-    else:  # default csv
+    else:
         df_merged.to_csv(buf, index=False)
         buf.seek(0)
         return send_file(
@@ -672,7 +666,7 @@ def export_data():
         )
 
 
-# ── Model loaded in memory (registry) ────────────────────────────
+# ── Loaded models ───────────────────────────────────────────────
 @admin_bp.route("/loaded-models", methods=["GET"])
 @admin_required
 def loaded_models():
@@ -695,11 +689,11 @@ def loaded_models():
             result[model_type] = {"loaded": False}
     return jsonify(result)
 
-# ============ CREATE DOSEN ============
-@admin_bp.route('/dosen', methods=['POST'])
+
+# ============ CRUD DOSEN ============
+@admin_bp.route('/dosen/add', methods=['POST'])
 @jwt_required()
 def create_dosen():
-    """Admin membuat akun dosen (NIP, nama, username, password, jabatan)"""
     if current_user.role != 'admin':
         return jsonify({"error": "Hanya admin yang dapat mengakses"}), 403
 
@@ -708,7 +702,7 @@ def create_dosen():
     nama = data.get('nama')
     username = data.get('username')
     password = data.get('password')
-    jabatan = data.get('jabatan', '')   # optional
+    jabatan = data.get('jabatan', '')
 
     if not all([nip, nama, username, password]):
         return jsonify({"error": "NIP, nama, username, password wajib diisi"}), 400
@@ -726,10 +720,6 @@ def create_dosen():
     dosen = Dosen(NIP=nip, nama_dosen=nama, jabatan=jabatan, Id_User=user.Id_User)
     db.session.add(dosen)
     db.session.commit()
-    data = request.get_json()
-    print("Data diterima:", data)
-    jabatan = data.get('jabatan', '')
-    print("Jabatan:", jabatan)
 
     return jsonify({
         "message": "Dosen berhasil ditambahkan",
@@ -738,57 +728,8 @@ def create_dosen():
         "jabatan": jabatan
     }), 201
 
-# ============ CREATE MAHASISWA ============
-@admin_bp.route('/mahasiswa', methods=['POST'])
-@jwt_required()
-def create_mahasiswa():
-    """Admin membuat akun mahasiswa (NIM, nama, username, password, dan NIP dosen wali)"""
-    if current_user.role != 'admin':
-        return jsonify({"error": "Hanya admin yang dapat mengakses"}), 403
 
-    data = request.get_json()
-    nim = data.get('nim')
-    nama = data.get('nama')
-    username = data.get('username')
-    password = data.get('password')
-    nip_dosen_wali = data.get('nip_dosen_wali')   # NIP dosen wali (string)
-
-    if not all([nim, nama, username, password, nip_dosen_wali]):
-        return jsonify({"error": "NIM, nama, username, password, dan nip_dosen_wali wajib diisi"}), 400
-
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Username sudah digunakan"}), 409
-    if Mahasiswa.query.filter_by(NIM=nim).first():
-        return jsonify({"error": "NIM sudah terdaftar"}), 409
-
-    # Cek apakah dosen wali ada (berdasarkan NIP)
-    dosen_wali = Dosen.query.filter_by(NIP=nip_dosen_wali).first()
-    if not dosen_wali:
-        return jsonify({"error": "Dosen wali dengan NIP tersebut tidak ditemukan"}), 404
-
-    user = User(username=username, role='mahasiswa')
-    user.set_password(password)
-    db.session.add(user)
-    db.session.flush()
-
-    mhs = Mahasiswa(
-        NIM=nim,
-        nama_mahasiswa=nama,
-        Id_User=user.Id_User,
-        NIP_doswal=nip_dosen_wali      # kolom di tabel mahasiswa menyimpan NIP (string)
-    )
-    db.session.add(mhs)
-    db.session.commit()
-
-    return jsonify({
-        "message": "Mahasiswa berhasil ditambahkan",
-        "nim": nim,
-        "username": username,
-        "dosen_wali": dosen_wali.nama_dosen
-    }), 201
-
-# ============ GET ALL DOSEN (untuk dropdown di frontend admin) ============
-@admin_bp.route('/dosen', methods=['GET'])
+@admin_bp.route('/dosen/all', methods=['GET'])
 @jwt_required()
 def get_all_dosen():
     if current_user.role != 'admin':
@@ -802,8 +743,127 @@ def get_all_dosen():
     } for d in dosen_list]
     return jsonify(result), 200
 
-# ============ GET ALL MAHASISWA (opsional untuk manajemen admin) ============
-@admin_bp.route('/mahasiswa', methods=['GET'])
+
+@admin_bp.route('/dosen/<nip>', methods=['GET'])
+@jwt_required()
+def get_dosen(nip):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+    dsn = Dosen.query.filter_by(NIP=nip).first()
+    if not dsn:
+        return jsonify({"error": "Dosen tidak ditemukan"}), 404
+    return jsonify({
+        "nip": dsn.NIP,
+        "nama": dsn.nama_dosen,
+        "jabatan": dsn.jabatan or "",
+        "username": dsn.user.username if dsn.user else None,
+    }), 200
+
+
+@admin_bp.route('/dosen/<nip>', methods=['PUT'])
+@jwt_required()
+def update_dosen(nip):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+
+    dsn = Dosen.query.filter_by(NIP=nip).first()
+    if not dsn:
+        return jsonify({"error": "Dosen tidak ditemukan"}), 404
+
+    data = request.get_json(silent=True) or {}
+    if 'nama' in data:
+        dsn.nama_dosen = data['nama']
+    if 'jabatan' in data:
+        dsn.jabatan = data['jabatan']
+    db.session.commit()
+    return jsonify({"message": "Profil dosen berhasil diperbarui"}), 200
+
+
+@admin_bp.route('/dosen/<nip>', methods=['DELETE'])
+@jwt_required()
+def delete_dosen(nip):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+    dsn = Dosen.query.filter_by(NIP=nip).first()
+    if not dsn:
+        return jsonify({"error": "Dosen tidak ditemukan"}), 404
+    user = dsn.user
+    db.session.delete(dsn)
+    if user:
+        db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Dosen dan akunnya berhasil dihapus"}), 200
+
+
+# ============ CRUD MAHASISWA ============
+@admin_bp.route('/mahasiswa/add', methods=['POST'])
+@jwt_required()
+def create_mahasiswa():
+    if current_user.role != 'admin':
+        return jsonify({"error": "Hanya admin yang dapat mengakses"}), 403
+
+    data = request.get_json()
+    nim = data.get('nim')
+    nama = data.get('nama')
+    username = data.get('username')
+    password = data.get('password')
+    nip_dosen_wali = data.get('nip_dosen_wali')
+
+    if not all([nim, nama, username, password, nip_dosen_wali]):
+        return jsonify({"error": "NIM, nama, username, password, dan nip_dosen_wali wajib diisi"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username sudah digunakan"}), 409
+    if Mahasiswa.query.filter_by(NIM=nim).first():
+        return jsonify({"error": "NIM sudah terdaftar"}), 409
+
+    dosen_wali = Dosen.query.filter_by(NIP=nip_dosen_wali).first()
+    if not dosen_wali:
+        return jsonify({"error": "Dosen wali dengan NIP tersebut tidak ditemukan"}), 404
+
+    kelas = data.get('kelas')
+    id_jurusan = data.get('id_jurusan')
+    ipk = data.get('IPK')
+    angkatan = data.get('angkatan')
+    gender = data.get('gender')
+    tanggal_lahir_str = data.get('tanggal_lahir')
+
+    tanggal_lahir = None
+    if tanggal_lahir_str:
+        try:
+            tanggal_lahir = datetime.strptime(tanggal_lahir_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"error": "Format tanggal_lahir harus YYYY-MM-DD"}), 400
+
+    user = User(username=username, role='mahasiswa')
+    user.set_password(password)
+    db.session.add(user)
+    db.session.flush()
+
+    mhs = Mahasiswa(
+        NIM=nim,
+        nama_mahasiswa=nama,
+        Id_User=user.Id_User,
+        NIP_doswal=nip_dosen_wali,
+        kelas=kelas,
+        id_jurusan=id_jurusan,
+        IPK=float(ipk) if ipk else None,
+        angkatan=angkatan,
+        gender=gender,
+        tanggal_lahir=tanggal_lahir,
+    )
+    db.session.add(mhs)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Mahasiswa berhasil ditambahkan",
+        "nim": nim,
+        "username": username,
+        "dosen_wali": dosen_wali.nama_dosen
+    }), 201
+
+
+@admin_bp.route('/mahasiswa/all', methods=['GET'])
 @jwt_required()
 def get_all_mahasiswa():
     if current_user.role != 'admin':
@@ -812,7 +872,6 @@ def get_all_mahasiswa():
     mahasiswa_list = Mahasiswa.query.all()
     result = []
     for m in mahasiswa_list:
-        # cari nama dosen wali dari NIP_doswal
         dosen_wali = Dosen.query.filter_by(NIP=m.NIP_doswal).first() if m.NIP_doswal else None
         result.append({
             "nim": m.NIM,
@@ -824,7 +883,74 @@ def get_all_mahasiswa():
     return jsonify(result), 200
 
 
-# ============ DELETE MAHASISWA ============
+@admin_bp.route('/mahasiswa/<nim>', methods=['GET'])
+@jwt_required()
+def get_mahasiswa(nim):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+    mhs = Mahasiswa.query.filter_by(NIM=nim).first()
+    if not mhs:
+        return jsonify({"error": "Mahasiswa tidak ditemukan"}), 404
+
+    dosen_wali = Dosen.query.filter_by(NIP=mhs.NIP_doswal).first() if mhs.NIP_doswal else None
+    return jsonify({
+        "nim": mhs.NIM,
+        "nama": mhs.nama_mahasiswa,
+        "kelas": mhs.kelas or "",
+        "id_jurusan": mhs.id_jurusan,
+        "IPK": float(mhs.IPK) if mhs.IPK else None,
+        "NIP_doswal": mhs.NIP_doswal,
+        "dosen_wali": dosen_wali.nama_dosen if dosen_wali else "",
+        "angkatan": mhs.angkatan or "",
+        "gender": mhs.gender or "",
+        "tanggal_lahir": mhs.tanggal_lahir.isoformat() if mhs.tanggal_lahir else None,
+        "usia": mhs.usia if hasattr(mhs, 'usia') else (mhs.usia if mhs.tanggal_lahir else None),
+        "username": mhs.user.username if mhs.user else None,
+    }), 200
+
+
+@admin_bp.route('/mahasiswa/<nim>', methods=['PUT'])
+@jwt_required()
+def update_mahasiswa(nim):
+    if current_user.role != 'admin':
+        return jsonify({"error": "Admin only"}), 403
+
+    mhs = Mahasiswa.query.filter_by(NIM=nim).first()
+    if not mhs:
+        return jsonify({"error": "Mahasiswa tidak ditemukan"}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    if 'nama' in data:
+        mhs.nama_mahasiswa = data['nama']
+    if 'kelas' in data:
+        mhs.kelas = data['kelas']
+    if 'id_jurusan' in data:
+        mhs.id_jurusan = data['id_jurusan']
+    if 'IPK' in data:
+        try:
+            mhs.IPK = float(data['IPK'])
+        except (TypeError, ValueError):
+            return jsonify({"error": "IPK harus berupa angka"}), 400
+    if 'angkatan' in data:
+        mhs.angkatan = data['angkatan']
+    if 'gender' in data:
+        mhs.gender = data['gender']
+    if 'tanggal_lahir' in data:
+        try:
+            mhs.tanggal_lahir = datetime.strptime(data['tanggal_lahir'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"error": "Format tanggal_lahir harus YYYY-MM-DD"}), 400
+    if 'nip_dosen_wali' in data:
+        dosen = Dosen.query.filter_by(NIP=data['nip_dosen_wali']).first()
+        if not dosen:
+            return jsonify({"error": "Dosen wali dengan NIP tersebut tidak ditemukan"}), 404
+        mhs.NIP_doswal = data['nip_dosen_wali']
+
+    db.session.commit()
+    return jsonify({"message": "Profil mahasiswa berhasil diperbarui"}), 200
+
+
 @admin_bp.route('/mahasiswa/<nim>', methods=['DELETE'])
 @jwt_required()
 def delete_mahasiswa(nim):
@@ -833,10 +959,21 @@ def delete_mahasiswa(nim):
     mhs = Mahasiswa.query.filter_by(NIM=nim).first()
     if not mhs:
         return jsonify({"error": "Mahasiswa tidak ditemukan"}), 404
-    # Hapus juga user-nya? Sesuaikan kebutuhan: jika user dihapus, semua data terkait hilang
     user = mhs.user
     db.session.delete(mhs)
     if user:
         db.session.delete(user)
     db.session.commit()
     return jsonify({"message": "Mahasiswa dan akunnya berhasil dihapus"}), 200
+
+
+@admin_bp.route('/jurusan/all', methods=['GET'])
+@admin_required
+def get_all_jurusan():
+    jurusan_list = Jurusan.query.order_by(Jurusan.nama_jurusan).all()
+    result = [{
+        "id": j.Id_Jurusan,
+        "nama": j.nama_jurusan,
+        "kaprodi": j.NIP_kaprodi or ""
+    } for j in jurusan_list]
+    return jsonify(result), 200

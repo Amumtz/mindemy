@@ -1,14 +1,10 @@
 """
 app/api/mahasiswa.py
 ────────────────────────────────────────────────────────
-POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi)
+POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi) + Deteksi Early Warning
 GET  /api/mahasiswa/hasil/<nim>         – hasil skrining terbaru
 GET  /api/mahasiswa/history             – riwayat semua skrining
 GET  /api/mahasiswa/catatan             – catatan konseling dari dosen
-GET  /api/mahasiswa/can_submit/<nim>    – cek apakah bisa submit kuesioner (1x seminggu)
-PUT  /api/mahasiswa/profil/foto         – upload foto profil
-GET  /api/mahasiswa/profil/foto/<nim>   – ambil foto profil
-DELETE /api/mahasiswa/profil/foto/<nim> – hapus foto profil
 """
 
 import json
@@ -21,12 +17,11 @@ from app.models import Mahasiswa, RiwayatSkrining
 from app.utils.scoring import (
     compute_stress_score, compute_sdi_score,
     validate_stress_answers, validate_motivation_answers,
-    generate_saran, generate_detailed_suggestions,
-    score_to_category,
+    generate_saran, score_to_category,
 )
 from app.ml.predictor import registry, prepare_stress_input, prepare_motivasi_input
 from app.models.mood_diary import MoodEntry, DiaryEntry
-from datetime import datetime, timedelta
+from datetime import datetime
 from app.utils.file_upload import save_profile_picture
 from werkzeug.exceptions import BadRequest
 import time
@@ -66,57 +61,20 @@ def _ensure_model_loaded(model_type: str) -> bool:
         return False
 
 
-# ── CEK APAKAH BISA SUBMIT KUESIONER (1x SEMINGGU) ─────────────────────
-@mahasiswa_bp.route("/can_submit/<nim>", methods=["GET"])
-@jwt_required()
-def can_submit_kuesioner(nim: str):
-    """Cek apakah mahasiswa bisa submit kuesioner (1x dalam 7 hari)"""
-    # Validasi akses
-    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
-        return jsonify({"error": "Akses ditolak."}), 403
-    
-    mhs = Mahasiswa.query.get(nim)
-    if not mhs:
-        return jsonify({"error": "Mahasiswa tidak ditemukan."}), 404
-    
-    # Cari skrining terakhir dalam 7 hari terakhir
-    one_week_ago = datetime.utcnow() - timedelta(days=7)
-    
-    last_skrining = (
-        RiwayatSkrining.query
-        .filter_by(NIM=nim)
-        .filter(RiwayatSkrining.tanggal_skrining >= one_week_ago)
-        .order_by(RiwayatSkrining.tanggal_skrining.desc())
-        .first()
-    )
-    
-    if last_skrining:
-        # Hitung hari yang tersisa
-        days_passed = (datetime.utcnow() - last_skrining.tanggal_skrining).days
-        days_remaining = max(0, 7 - days_passed)
-        
-        return jsonify({
-            "can_submit": False,
-            "message": f"Anda sudah mengisi kuesioner pada {last_skrining.tanggal_skrining.strftime('%d %B %Y')}. "
-                      f"Silakan kembali dalam {days_remaining} hari untuk mengisi kembali.",
-            "last_submission_date": last_skrining.tanggal_skrining.isoformat(),
-            "days_remaining": days_remaining
-        }), 200
-    else:
-        return jsonify({
-            "can_submit": True,
-            "message": "Anda dapat mengisi kuesioner.",
-            "last_submission_date": None,
-            "days_remaining": 0
-        }), 200
-
-
-# ── Submit kuesioner ─────────────────────────────────────────────
+# ── Submit kuesioner (Early Warning System Integrated) ────────────
 @mahasiswa_bp.route("/kuesioner", methods=["POST"])
 @mahasiswa_required
 def submit_kuesioner():
     data    = request.get_json(silent=True) or {}
     jawaban = data.get("jawaban", {})
+
+    # Validasi
+    err = validate_stress_answers(jawaban)
+    if err:
+        return jsonify({"error": f"Validasi stres: {err}"}), 422
+    err = validate_motivation_answers(jawaban)
+    if err:
+        return jsonify({"error": f"Validasi motivasi: {err}"}), 422
 
     # Resolve NIM
     if current_user.role == "mahasiswa":
@@ -130,35 +88,7 @@ def submit_kuesioner():
     if not mhs:
         return jsonify({"error": "Data mahasiswa tidak ditemukan."}), 404
 
-    # 🔥 CEK BATASAN 1x SEMINGGU (HANYA UNTUK MAHASISWA, ADMIN BISA LEWAT)
-    if current_user.role == "mahasiswa":
-        one_week_ago = datetime.utcnow() - timedelta(days=7)
-        last_skrining = (
-            RiwayatSkrining.query
-            .filter_by(NIM=nim)
-            .filter(RiwayatSkrining.tanggal_skrining >= one_week_ago)
-            .first()
-        )
-        
-        if last_skrining:
-            days_passed = (datetime.utcnow() - last_skrining.tanggal_skrining).days
-            days_remaining = 7 - days_passed
-            return jsonify({
-                "error": "Batasan Mingguan",
-                "message": f"Anda sudah mengisi kuesioner minggu ini. Silakan kembali dalam {days_remaining} hari.",
-                "last_submission_date": last_skrining.tanggal_skrining.isoformat(),
-                "days_remaining": days_remaining
-            }), 403
-
-    # 🔥 UPDATE DATA FREKUENSI OLAHRAGA DAN DURASI TIDUR DARI USER
-    if "freq_olahraga" in jawaban:
-        mhs.freq_olahraga = jawaban["freq_olahraga"]
-    if "durasi_tidur" in jawaban:
-        mhs.durasi_tidur = jawaban["durasi_tidur"]
-    
-    db.session.commit()
-
-    # Data demografi (gunakan nama field sesuai database)
+    # Data demografi
     mhs_data = {
         "IPK": getattr(mhs, "IPK", 0.0),
         "Usia": getattr(mhs, "usia", 20),
@@ -169,19 +99,9 @@ def submit_kuesioner():
         "durasi_tidur": getattr(mhs, "durasi_tidur", ""),
     }
 
-    # Pisahkan jawaban stres (S1-S40) dan motivasi (M1-M28)
-    stress_answers = {}
-    motivation_answers = {}
-    
-    for key, value in jawaban.items():
-        if key.startswith('S'):
-            stress_answers[key] = value
-        elif key.startswith('M'):
-            motivation_answers[key] = value
-
-    # Hitung skor mentah (untuk fallback)
-    score_stress = compute_stress_score(stress_answers)
-    score_sdi    = compute_sdi_score(motivation_answers)
+    # Hitung skor mentah
+    score_stress = compute_stress_score(jawaban)
+    score_sdi    = compute_sdi_score(jawaban)
 
     # Pastikan model siap
     stress_loaded = _ensure_model_loaded("stress")
@@ -190,7 +110,8 @@ def submit_kuesioner():
     # Prediksi Stress
     if stress_loaded:
         try:
-            input_stress = prepare_stress_input(mhs_data, stress_answers)
+            input_stress = prepare_stress_input(mhs_data, jawaban)
+            # Catatan: audit_input dihapus jika fungsinya tidak di-import/didefinisikan di atas
             tingkat_stres = registry.predict("stress", input_stress)
         except Exception as e:
             logger.error(f"Gagal prediksi stress: {e}")
@@ -201,7 +122,7 @@ def submit_kuesioner():
     # Prediksi Motivasi
     if motivasi_loaded:
         try:
-            input_motivasi = prepare_motivasi_input(mhs_data, motivation_answers)
+            input_motivasi = prepare_motivasi_input(mhs_data, jawaban)
             tingkat_motivasi = registry.predict("motivasi", input_motivasi)
         except Exception as e:
             logger.error(f"Gagal prediksi motivasi: {e}")
@@ -209,9 +130,19 @@ def submit_kuesioner():
     else:
         tingkat_motivasi = _fallback_motivasi_category(score_sdi)
 
-    # 🔥 GENERATE SARAN (singkat dan detail)
     saran = generate_saran(tingkat_stres, tingkat_motivasi)
-    detailed_suggestions = generate_detailed_suggestions(tingkat_stres, tingkat_motivasi)
+
+    # FITUR C: Cek apakah ada lonjakan skor stres secara proaktif
+    is_spike = False
+    prev_skrining = (
+        RiwayatSkrining.query
+        .filter_by(NIM=nim)
+        .order_by(RiwayatSkrining.tanggal_skrining.desc())
+        .first()
+    )
+    if prev_skrining and prev_skrining.score_stress is not None:
+        if (score_stress - prev_skrining.score_stress) >= 30:
+            is_spike = True
 
     # Simpan ke database
     skrining = RiwayatSkrining(
@@ -226,16 +157,15 @@ def submit_kuesioner():
     db.session.add(skrining)
     db.session.commit()
 
-    # 🔥 KIRIM JUGA detailed_suggestions
     return jsonify({
-        "message":              "Kuesioner berhasil disimpan.",
-        "Id_skrining":          skrining.Id_skrining,
-        "tingkat_stres":        tingkat_stres,
-        "tingkat_motivasi":     tingkat_motivasi,
-        "score_stress":         score_stress,
-        "score_sdi":            score_sdi,
-        "saran":                saran,
-        "detailed_suggestions": detailed_suggestions,
+        "message":          "Kuesioner berhasil disimpan.",
+        "Id_skrining":      skrining.Id_skrining,
+        "tingkat_stres":    tingkat_stres,
+        "tingkat_motivasi": tingkat_motivasi,
+        "score_stress":     score_stress,
+        "score_sdi":        score_sdi,
+        "saran":            saran,
+        "is_spike":         is_spike  # Mengembalikan informasi lonjakan secara instan ke frontend
     }), 201
 
 
@@ -299,23 +229,6 @@ def _fallback_motivasi_category(sdi: float) -> str:
     return "Rendah"
 
 
-# ============ TAMBAHKAN INI ============
-@mahasiswa_bp.route("/suggestions/detail", methods=["GET"])
-@jwt_required()
-def get_detailed_suggestions_endpoint():
-    """Ambil saran detail berdasarkan tingkat stres dan motivasi"""
-    stress = request.args.get("stress", "")
-    motivation = request.args.get("motivation", "")
-    
-    if not stress or not motivation:
-        return jsonify({"error": "Parameter stress dan motivation wajib diisi."}), 400
-    
-    from app.utils.scoring import generate_detailed_suggestions
-    suggestions = generate_detailed_suggestions(stress, motivation)
-    
-    return jsonify({"suggestions": suggestions}), 200
-
-
 # ── Profil ────────────────────────────────────────────────────────
 @mahasiswa_bp.route("/profil", methods=["PUT"])
 @jwt_required()
@@ -374,10 +287,10 @@ def profil_status():
 @mahasiswa_bp.route("/mood", methods=["POST"])
 @mahasiswa_required
 def add_mood():
-    """Tambah atau update catatan mood harian (1-5) - hanya satu per hari"""
+    """Tambah catatan mood harian (1-5)"""
     data = request.get_json(silent=True) or {}
     nim = data.get("nim")
-    date_str = data.get("date")
+    date_str = data.get("date")      # format YYYY-MM-DD
     mood_value = data.get("mood_value")
 
     if current_user.role == "mahasiswa":
@@ -405,18 +318,10 @@ def add_mood():
     if not mhs:
         return jsonify({"error": "Mahasiswa tidak ditemukan."}), 404
 
-    existing_mood = MoodEntry.query.filter_by(nim=nim, date=date_obj).first()
-    
-    if existing_mood:
-        existing_mood.mood_value = mood_value
-        existing_mood.updated_at = datetime.now()
-        db.session.commit()
-        return jsonify(existing_mood.to_dict()), 200
-    else:
-        new_mood = MoodEntry(nim=nim, date=date_obj, mood_value=mood_value)
-        db.session.add(new_mood)
-        db.session.commit()
-        return jsonify(new_mood.to_dict()), 201
+    new_mood = MoodEntry(nim=nim, date=date_obj, mood_value=mood_value)
+    db.session.add(new_mood)
+    db.session.commit()
+    return jsonify(new_mood.to_dict()), 201
 
 
 @mahasiswa_bp.route("/diary", methods=["POST"])
@@ -555,9 +460,6 @@ def delete_diary(id):
     db.session.commit()
     return jsonify({"message": "Diary entry dihapus."}), 200
 
-
-# ============ FOTO PROFIL ENDPOINTS ============
-
 @mahasiswa_bp.route("/profil/foto", methods=["PUT"])
 @jwt_required()
 def upload_foto_profil():
@@ -576,14 +478,11 @@ def upload_foto_profil():
     try:
         # Simpan file dan dapatkan path relatif
         relative_path = save_profile_picture(file, mhs.NIM)
-        
         # Hapus foto lama jika ada
         if mhs.foto_profil:
-            root_dir = os.path.dirname(current_app.root_path)
-            old_path = os.path.join(root_dir, mhs.foto_profil)
+            old_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
             if os.path.exists(old_path):
                 os.remove(old_path)
-                print(f"🗑️ Foto lama dihapus: {old_path}")
         
         mhs.foto_profil = relative_path
         db.session.commit()
@@ -599,39 +498,23 @@ def upload_foto_profil():
         db.session.rollback()
         current_app.logger.error(f"Gagal upload foto: {e}")
         return jsonify({"error": "Terjadi kesalahan saat menyimpan foto."}), 500
-
-
-# 🔥 PERBAIKAN: Endpoint GET foto - TANPA AUTHENTIKASI
+    
 @mahasiswa_bp.route("/profil/foto/<nim>", methods=["GET"])
-# @jwt_required()  # <-- HAPUS/TAMBAHKAN COMMENT INI
+@jwt_required()
 def get_foto_profil(nim):
-    # HAPUS pengecekan role
-    # if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
-    #     return jsonify({"error": "Akses ditolak."}), 403
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
+        return jsonify({"error": "Akses ditolak."}), 403
     
     mhs = Mahasiswa.query.get(nim)
     if not mhs or not mhs.foto_profil:
         return jsonify({"error": "Foto profil tidak ditemukan."}), 404
     
-    # Cari file di beberapa kemungkinan lokasi
-    root_dir = os.path.dirname(current_app.root_path)
-    filename = os.path.basename(mhs.foto_profil)
-    
-    possible_paths = [
-        os.path.join(root_dir, mhs.foto_profil),
-        os.path.join(root_dir, 'storage', 'uploads', filename),
-        os.path.join(current_app.root_path, 'storage', 'uploads', filename),
-    ]
-    
-    file_path = None
-    for path in possible_paths:
-        if os.path.exists(path):
-            file_path = path
-            print(f"✅ Foto ditemukan di: {path}")
-            break
-    
-    if not file_path:
-        print(f"❌ Foto tidak ditemukan. DB path: {mhs.foto_profil}")
+    # Path absolut
+    root_dir = os.path.dirname(current_app.root_path)   # path ke backend/
+    full_path = os.path.join(root_dir, mhs.foto_profil)
+
+    if not os.path.exists(full_path):
+        current_app.logger.error(f"File not found: {full_path}")
         return jsonify({"error": "File foto tidak ada di server."}), 404
 
     
@@ -807,7 +690,6 @@ def get_profil_data(nim):
         "usia": mhs.usia,
         "freq_olahraga": mhs.freq_olahraga or "",
         "durasi_tidur": mhs.durasi_tidur or "",
-        # 🔥 TAMBAHKAN: Data dosen wali
         "nip_doswal": nip_doswal,
         "nama_dosen_wali": nama_dosen_wali,
     }), 200

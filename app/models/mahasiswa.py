@@ -1,4 +1,5 @@
 from app.extensions import db
+from datetime import date
 
 class Mahasiswa(db.Model):
     __tablename__ = "mahasiswa"
@@ -10,12 +11,16 @@ class Mahasiswa(db.Model):
     IPK = db.Column(db.Numeric(3, 2), default=0.00)
     NIP_doswal = db.Column(db.String(20), db.ForeignKey("dosen.NIP"))
     Id_User = db.Column(db.Integer, db.ForeignKey("users.Id_User"), nullable=False, unique=True)
-    foto_profil = db.Column(db.String(255), nullable=True)
+    foto_profil = db.Column(db.String(500), nullable=True)
 
+<<<<<<< HEAD
+    # Tambahan kolom demografi
+=======
     # Tambahan kolom demografi (jika sudah ditambahkan via migrasi)
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     angkatan = db.Column(db.String(10))
     gender = db.Column(db.String(10))
-    usia = db.Column(db.Integer)
+    tanggal_lahir = db.Column(db.Date)
     freq_olahraga = db.Column(db.String(20))
     durasi_tidur = db.Column(db.String(20))
 
@@ -26,6 +31,16 @@ class Mahasiswa(db.Model):
     riwayat = db.relationship("RiwayatSkrining", back_populates="mahasiswa")
     catatan = db.relationship("CatatanKonseling", back_populates="mahasiswa")
 
+    @property
+    def usia(self):
+        """Hitung usia dari tanggal_lahir (hanya baca)"""
+        if self.tanggal_lahir:
+            today = date.today()
+            return today.year - self.tanggal_lahir.year - (
+                (today.month, today.day) < (self.tanggal_lahir.month, self.tanggal_lahir.day)
+            )
+        return None
+        
     def to_dict(self):
         return {
             "NIM": self.NIM,

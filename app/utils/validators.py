@@ -85,7 +85,7 @@ def validate_usia(usia: Any) -> Optional[str]:
 
 def validate_olahraga(value: str) -> bool:
     """Memeriksa apakah value termasuk pilihan yang valid."""
-    valid_options = ["Tidak pernah", "1-2 kali", "3-4 kali", ">4 kali"]
+    valid_options = ["Tidak pernah", "1-3 kali", "4-6 kali", ">7 kali"]
     return value in valid_options
 
 

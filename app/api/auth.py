@@ -33,6 +33,10 @@ def login():
         return jsonify({"error": "Username dan password wajib diisi."}), 400
 
     user = User.query.filter_by(username=username).first()
+
+    if not user or not user.check_password(password):
+        return jsonify({"error": "Username atau password salah."}), 401
+
     
     if not user:
         return jsonify({"error": "Username atau password salah."}), 401
@@ -46,7 +50,6 @@ def login():
             "error": "Akun belum diaktivasi. Silakan aktivasi terlebih dahulu."
         }), 403
     # =============================================
-
     # Build extra claims with profile info
     extra = _build_extra_claims(user)
     access  = create_access_token(identity=str(user.Id_User), additional_claims=extra)
@@ -81,6 +84,76 @@ def me():
     extra = _build_extra_claims(current_user)
     return jsonify(current_user.to_dict() | extra)
 
+
+def _build_extra_claims(user: User) -> dict:
+    claims = {"role": user.role}
+    
+    print(f"DEBUG: User role = {user.role}")
+    print(f"DEBUG: User dosen = {user.dosen}")
+    
+    # Ambil data dosen termasuk jabatan
+    if user.role == "dosen" and user.dosen:
+        claims["NIP"] = user.dosen.NIP
+        claims["nama"] = user.dosen.nama_dosen
+        
+        # Normalisasi nilai jabatan untuk frontend
+        jabatan_raw = user.dosen.jabatan
+        if jabatan_raw:
+            # Ubah ke lowercase dan replace spasi dengan underscore
+            if "kaprodi" in jabatan_raw.lower():
+                claims["jabatan"] = "kaprodi"
+            elif "dosen wali" in jabatan_raw.lower() or "dosen_wali" in jabatan_raw.lower():
+                claims["jabatan"] = "dosen_wali"
+            else:
+                # Default untuk jabatan lain
+                claims["jabatan"] = jabatan_raw.lower().replace(" ", "_")
+        else:
+            claims["jabatan"] = "dosen_wali"  # Default untuk dosen biasa
+        
+        print(f"DEBUG: Original jabatan = {jabatan_raw}, Normalized = {claims['jabatan']}")
+    
+    elif user.role == "mahasiswa" and user.mahasiswa:
+        claims["NIM"] = user.mahasiswa.NIM
+        claims["nama"] = user.mahasiswa.nama_mahasiswa
+    
+    print(f"DEBUG: Final claims = {claims}")
+    
+    return claims
+
+# @auth_bp.route("/reset-password", methods=["POST"])
+# def reset_password():
+#     data = request.get_json(silent=True) or {}
+#     username = data.get("username", "").strip()
+#     # Terima identity atau nim/nip
+#     identity = data.get("identity") or data.get("nim") or data.get("nip")
+#     if identity:
+#         identity = str(identity).strip()
+#     new_password = data.get("new_password", "")
+
+#     if not username or not identity or not new_password:
+#         return jsonify({"error": "Username, NIM/NIP, dan password baru wajib diisi."}), 400
+#     if len(new_password) < 6:
+#         return jsonify({"error": "Password baru minimal 6 karakter."}), 400
+
+#     user = User.query.filter_by(username=username).first()
+#     if not user:
+#         return jsonify({"error": "Username tidak ditemukan."}), 404
+
+#     # Verifikasi identity (NIM/NIP) berdasarkan role
+#     if user.role == "mahasiswa":
+#         if not user.mahasiswa or user.mahasiswa.NIM != identity:
+#             return jsonify({"error": "NIM tidak cocok dengan username tersebut."}), 403
+#     elif user.role == "dosen":
+#         if not user.dosen or user.dosen.NIP != identity:
+#             return jsonify({"error": "NIP tidak cocok dengan username tersebut."}), 403
+#     else:
+#         return jsonify({"error": "Role tidak valid."}), 400
+
+#     # Reset password
+#     user.set_password(new_password)
+#     db.session.commit()
+
+#     return jsonify({"message": "Password berhasil direset. Silakan login dengan password baru."})
 
 # @auth_bp.route("/register", methods=["POST"])
 # def register():

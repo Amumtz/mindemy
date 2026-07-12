@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 load_dotenv()  # load .env file
 
 class BaseConfig:
-    SECRET_KEY        = os.getenv("SECRET_KEY", "change-me-in-production")
+    SECRET_KEY        = os.getenv("SECRET_KEY", "8213d341ac28abb2f34c0298e1126b901b4a27392202966f4391efe8c33a0dce")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    JWT_SECRET_KEY           = os.getenv("JWT_SECRET_KEY", "jwt-secret-change-me")
+    JWT_SECRET_KEY           = os.getenv("JWT_SECRET_KEY", "7037bb236755bb5e4a75a32a65fed5ab52af217def3a8ca23dfc015e22810c4a")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=int(os.getenv("JWT_ACCESS_HOURS", 8)))
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", 30)))
 

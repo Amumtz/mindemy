@@ -7,7 +7,11 @@ serta klasifikasi berdasarkan threshold qcut.
 """
 
 import numpy as np
+<<<<<<< HEAD
+from typing import Optional, Dict, Union
+=======
 from typing import Optional, Dict, Union, List
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -78,15 +82,7 @@ def compute_sdi_score(answers: Dict[str, Union[int, float]]) -> float:
 # ──────────────────────────────────────────────────────────────────
 
 def score_to_category(score: float, thresholds: Dict[str, float]) -> str:
-    """
-    thresholds format (dari qcut saat training):
-        {"low_upper": batas_atas_rendah, "high_lower": batas_bawah_tinggi}
 
-    Aturan:
-        score <= low_upper          → Rendah
-        score >= high_lower         → Tinggi
-        selainnya                   → Sedang
-    """
     low_upper = thresholds.get("low_upper", float("inf"))
     high_lower = thresholds.get("high_lower", float("-inf"))
 
@@ -139,6 +135,48 @@ def validate_motivation_answers(answers: Dict) -> Optional[str]:
 
 
 # ──────────────────────────────────────────────────────────────────
+<<<<<<< HEAD
+# Saran Otomatis
+# ──────────────────────────────────────────────────────────────────
+
+_SUGGESTIONS = {
+    ("Rendah", "Tinggi"): (
+        "Stres Anda terkendali dan motivasi Anda sangat baik! Pertahankan gaya hidup sehat "
+        "dan terus kembangkan potensi diri."
+    ),
+    ("Sedang", "Tinggi"): (
+        "Motivasi Anda tinggi, namun mulai ada tekanan stres. Pastikan waktu istirahat "
+        "cukup dan manfaatkan motivasi positif untuk mengatasi tantangan."
+    ),
+    ("Tinggi", "Tinggi"): (
+        "Stres Anda cukup tinggi meski motivasi masih baik. Segera konsultasikan dengan "
+        "dosen wali atau konselor untuk mendapatkan dukungan."
+    ),
+    ("Rendah", "Sedang"): (
+        "Kondisi cukup baik. Coba eksplorasi kegiatan atau metode belajar baru untuk "
+        "meningkatkan motivasi Anda lebih lanjut."
+    ),
+    ("Sedang", "Sedang"): (
+        "Perhatikan keseimbangan belajar dan istirahat. Cari lingkungan belajar yang "
+        "lebih suportif untuk meningkatkan motivasi."
+    ),
+    ("Tinggi", "Sedang"): (
+        "Tingkat stres Anda mengkhawatirkan. Segera bicarakan dengan dosen wali dan "
+        "terapkan teknik manajemen stres (olahraga, meditasi, dll.)."
+    ),
+    ("Rendah", "Rendah"): (
+        "Motivasi Anda perlu ditingkatkan. Coba tetapkan tujuan jangka pendek yang "
+        "terukur dan cari dukungan dari teman atau mentor."
+    ),
+    ("Sedang", "Rendah"): (
+        "Kombinasi stres sedang dan motivasi rendah perlu perhatian. Diskusikan kondisi "
+        "ini dengan dosen wali Anda sesegera mungkin."
+    ),
+    ("Tinggi", "Rendah"): (
+        "Kondisi ini memerlukan perhatian segera. Sangat disarankan untuk berkonsultasi "
+        "dengan konselor atau psikolog kampus dalam waktu dekat."
+    ),
+=======
 # Saran Natural (Berdasarkan File PDF)
 # ──────────────────────────────────────────────────────────────────
 
@@ -220,11 +258,20 @@ _SHORT_SUGGESTIONS = {
     ("Rendah", "Rendah"): "Mulai dari hal paling ringan dulu. Yang penting bergerak, tidak harus langsung banyak.",
     ("Rendah", "Sedang"): "Kamu sudah di jalur yang cukup baik. Tinggal jaga konsistensi setiap hari.",
     ("Rendah", "Tinggi"): "Ini waktu yang pas untuk berkembang. Ambil tantangan baru secara bertahap.",
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 }
 
 
 def generate_saran(tingkat_stres: str, tingkat_motivasi: str) -> str:
     """
+<<<<<<< HEAD
+    Menghasilkan saran berdasarkan kombinasi tingkat stres dan motivasi.
+    """
+    key = (tingkat_stres, tingkat_motivasi)
+    return _SUGGESTIONS.get(
+        key,
+        "Silakan konsultasikan kondisi Anda dengan dosen wali."
+=======
     Menghasilkan saran singkat berdasarkan kombinasi tingkat stres dan motivasi.
     """
     key = (tingkat_stres, tingkat_motivasi)
@@ -247,4 +294,5 @@ def generate_detailed_suggestions(tingkat_stres: str, tingkat_motivasi: str) -> 
             "Lakukan aktivitas fisik ringan secara rutin.",
             "Jangan ragu untuk beristirahat jika merasa lelah.",
         ]
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     )
