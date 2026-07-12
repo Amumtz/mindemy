@@ -32,10 +32,31 @@ class User(db.Model):
     def check_password(self, plain_password):
         return check_password_hash(self.password, plain_password)
 
-    def to_dict(self):
-        return {
+    # C:\Users\maach\Documents\TA_Ghifarii\mindemy\app\models\user.py
+
+    def to_dict(self) -> dict:
+        data = {
             "Id_User": self.Id_User,
             "username": self.username,
             "role": self.role,
-            "created_at": self.created_at.isoformat() if self.created_at else None
         }
+        
+        # Tambahkan data dosen jika ada
+        if self.role == "dosen" and self.dosen:
+            data["NIP"] = self.dosen.NIP
+            data["nama"] = self.dosen.nama_dosen
+            
+            # Format jabatan untuk frontend
+            jabatan_raw = self.dosen.jabatan
+            if jabatan_raw:
+                jabatan_formatted = jabatan_raw.lower().replace(" ", "_")
+                data["jabatan"] = jabatan_formatted
+            else:
+                data["jabatan"] = "dosen_wali"
+        
+        # Tambahkan data mahasiswa jika ada
+        elif self.role == "mahasiswa" and self.mahasiswa:
+            data["NIM"] = self.mahasiswa.NIM
+            data["nama"] = self.mahasiswa.nama_mahasiswa
+        
+        return data

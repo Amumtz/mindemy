@@ -1,13 +1,3 @@
-"""
-blueprints/dosen.py (sekarang app/api/dosen.py)
-───────────────────────────────────────────────
-GET  /api/dosen/mahasiswa              – daftar mahasiswa bimbingan
-GET  /api/dosen/mahasiswa/<nim>        – detail + hasil skrining mahasiswa
-GET  /api/dosen/statistik              – agregat tingkat stres & motivasi
-POST /api/dosen/catatan                – tambah catatan konseling
-GET  /api/dosen/catatan/<nim>          – lihat catatan untuk mahasiswa tertentu
-"""
-
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, current_user
 from sqlalchemy import func
@@ -32,7 +22,7 @@ def _get_nip() -> str:
     return current_user.dosen.NIP if current_user.role == "dosen" else request.args.get("NIP", "")
 
 
-# ── Daftar mahasiswa bimbingan ────────────────────────────────────
+# ── Daftar mahasiswa bimbingan (Early Warning System Integrated) ──
 
 @dosen_bp.route("/mahasiswa", methods=["GET"])
 @dosen_required
@@ -52,14 +42,33 @@ def list_mahasiswa():
 
     result = []
     for mhs in paginated.items:
-        latest = (
+        riwayat_all = (
             RiwayatSkrining.query
             .filter_by(NIM=mhs.NIM)
             .order_by(RiwayatSkrining.tanggal_skrining.desc())
-            .first()
+            .all()
         )
+        
         item = mhs.to_dict()
-        item["last_skrining"] = latest.to_dict() if latest else None
+        
+        if riwayat_all:
+            latest = riwayat_all[0]
+            latest_dict = latest.to_dict()
+            
+            is_spike = False
+            if len(riwayat_all) > 1:
+                prev = riwayat_all[1]
+                score_sekarang = latest.score_stress or 0
+                score_sebelumnya = prev.score_stress or 0
+                
+                if (score_sekarang - score_sebelumnya) >= 30:
+                    is_spike = True
+            
+            latest_dict["is_spike"] = is_spike
+            item["last_skrining"] = latest_dict
+        else:
+            item["last_skrining"] = None
+            
         result.append(item)
 
     return jsonify({
@@ -78,7 +87,6 @@ def detail_mahasiswa(nim: str):
     nip = _get_nip()
     mhs = Mahasiswa.query.get_or_404(nim)
 
-    # Dosen can only see own bimbingan
     if current_user.role == "dosen" and mhs.NIP_doswal != nip:
         return jsonify({"error": "Mahasiswa bukan bimbingan Anda."}), 403
 
@@ -92,23 +100,25 @@ def detail_mahasiswa(nim: str):
     })
 
 
-# ── Statistik bimbingan ───────────────────────────────────────────
+# ── Statistik bimbingan (Sinkron Sesuai Daftar Mahasiswa Aktif) ──
 
 @dosen_bp.route("/statistik", methods=["GET"])
 @dosen_required
 def statistik():
     nip  = _get_nip()
+    
+    # 1. Ambil semua NIM mahasiswa bimbingan aktif dosen ini saja
     nims = [m.NIM for m in Mahasiswa.query.filter_by(NIP_doswal=nip).all()]
 
     if not nims:
         return jsonify({
             "total_mahasiswa": 0,
             "sudah_skrining":  0,
-            "stress_dist":     {},
-            "motivasi_dist":   {},
+            "stress_dist":     {"Rendah": 0, "Sedang": 0, "Tinggi": 0},
+            "motivasi_dist":   {"Rendah": 0, "Sedang": 0, "Tinggi": 0},
         })
 
-    # Only latest skrining per mahasiswa
+    # 2. Ambil baris riwayat skrining paling baru (latest) untuk masing-masing NIM mahasiswa bimbingan tersebut
     subq = (
         db.session.query(
             RiwayatSkrining.NIM,
@@ -125,11 +135,15 @@ def statistik():
         .all()
     )
 
+    # 3. Hitung distribusi skor secara presisi hanya dari baris data bimbingan aktif
     stress_dist   = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
     motivasi_dist = {"Rendah": 0, "Sedang": 0, "Tinggi": 0}
+    
     for row in latest_rows:
-        if row.tingkat_stres:    stress_dist[row.tingkat_stres]     += 1
-        if row.tingkat_motivasi: motivasi_dist[row.tingkat_motivasi] += 1
+        if row.tingkat_stres in stress_dist:
+            stress_dist[row.tingkat_stres] += 1
+        if row.tingkat_motivasi in motivasi_dist:
+            motivasi_dist[row.tingkat_motivasi] += 1
 
     return jsonify({
         "total_mahasiswa": len(nims),
@@ -140,7 +154,7 @@ def statistik():
     })
 
 
-# ── Catatan konseling ─────────────────────────────────────────────
+# ── Catatan konseling CRUD & Real-time Timestamp ──────────────────
 
 @dosen_bp.route("/catatan", methods=["POST"])
 @dosen_required
@@ -157,10 +171,47 @@ def tambah_catatan():
     if current_user.role == "dosen" and mhs.NIP_doswal != nip:
         return jsonify({"error": "Mahasiswa bukan bimbingan Anda."}), 403
 
+    # Field tanggal_catat otomatis terisi waktu real-time UTC via default=datetime.utcnow di model
     catatan = CatatanKonseling(NIM=nim, NIP=nip, isi_catatan=isi_catatan)
     db.session.add(catatan)
     db.session.commit()
     return jsonify({"message": "Catatan berhasil disimpan.", "id": catatan.Id_catatan}), 201
+
+
+@dosen_bp.route("/catatan/<int:id_catatan>", methods=["PUT"])
+@dosen_required
+def edit_catatan(id_catatan):
+    """Mengubah isi catatan bimbingan yang sudah ada."""
+    nip = _get_nip()
+    catatan = CatatanKonseling.query.get_or_404(id_catatan)
+    
+    if current_user.role == "dosen" and catatan.NIP != nip:
+        return jsonify({"error": "Anda tidak memiliki hak akses mengubah catatan ini."}), 403
+        
+    data = request.get_json(silent=True) or {}
+    isi_baru = data.get("isi_catatan", "").strip()
+    
+    if not isi_baru:
+        return jsonify({"error": "Isi catatan tidak boleh kosong."}), 400
+        
+    catatan.isi_catatan = isi_baru
+    db.session.commit()
+    return jsonify({"message": "Catatan berhasil diperbarui."}), 200
+
+
+@dosen_bp.route("/catatan/<int:id_catatan>", methods=["DELETE"])
+@dosen_required
+def hapus_catatan(id_catatan):
+    """Menghapus catatan bimbingan dari basis data."""
+    nip = _get_nip()
+    catatan = CatatanKonseling.query.get_or_404(id_catatan)
+    
+    if current_user.role == "dosen" and catatan.NIP != nip:
+        return jsonify({"error": "Anda tidak memiliki hak akses menghapus catatan ini."}), 403
+        
+    db.session.delete(catatan)
+    db.session.commit()
+    return jsonify({"message": "Catatan berhasil dihapus secara permanen."}), 200
 
 
 @dosen_bp.route("/catatan/<nim>", methods=["GET"])

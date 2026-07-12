@@ -1,7 +1,7 @@
 """
 app/api/mahasiswa.py
 ────────────────────────────────────────────────────────
-POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi)
+POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi) + Deteksi Early Warning
 GET  /api/mahasiswa/hasil/<nim>         – hasil skrining terbaru
 GET  /api/mahasiswa/history             – riwayat semua skrining
 GET  /api/mahasiswa/catatan             – catatan konseling dari dosen
@@ -61,7 +61,7 @@ def _ensure_model_loaded(model_type: str) -> bool:
         return False
 
 
-# ── Submit kuesioner ─────────────────────────────────────────────
+# ── Submit kuesioner (Early Warning System Integrated) ────────────
 @mahasiswa_bp.route("/kuesioner", methods=["POST"])
 @mahasiswa_required
 def submit_kuesioner():
@@ -88,7 +88,7 @@ def submit_kuesioner():
     if not mhs:
         return jsonify({"error": "Data mahasiswa tidak ditemukan."}), 404
 
-    # Data demografi (gunakan nama field sesuai database)
+    # Data demografi
     mhs_data = {
         "IPK": getattr(mhs, "IPK", 0.0),
         "Usia": getattr(mhs, "usia", 20),
@@ -99,7 +99,7 @@ def submit_kuesioner():
         "durasi_tidur": getattr(mhs, "durasi_tidur", ""),
     }
 
-    # Hitung skor mentah (untuk fallback)
+    # Hitung skor mentah
     score_stress = compute_stress_score(jawaban)
     score_sdi    = compute_sdi_score(jawaban)
 
@@ -111,7 +111,7 @@ def submit_kuesioner():
     if stress_loaded:
         try:
             input_stress = prepare_stress_input(mhs_data, jawaban)
-            audit_input("stress", input_stress)   
+            # Catatan: audit_input dihapus jika fungsinya tidak di-import/didefinisikan di atas
             tingkat_stres = registry.predict("stress", input_stress)
         except Exception as e:
             logger.error(f"Gagal prediksi stress: {e}")
@@ -132,6 +132,18 @@ def submit_kuesioner():
 
     saran = generate_saran(tingkat_stres, tingkat_motivasi)
 
+    # FITUR C: Cek apakah ada lonjakan skor stres secara proaktif
+    is_spike = False
+    prev_skrining = (
+        RiwayatSkrining.query
+        .filter_by(NIM=nim)
+        .order_by(RiwayatSkrining.tanggal_skrining.desc())
+        .first()
+    )
+    if prev_skrining and prev_skrining.score_stress is not None:
+        if (score_stress - prev_skrining.score_stress) >= 30:
+            is_spike = True
+
     # Simpan ke database
     skrining = RiwayatSkrining(
         NIM=nim,
@@ -146,13 +158,14 @@ def submit_kuesioner():
     db.session.commit()
 
     return jsonify({
-        "message":         "Kuesioner berhasil disimpan.",
-        "Id_skrining":     skrining.Id_skrining,
-        "tingkat_stres":   tingkat_stres,
-        "tingkat_motivasi":tingkat_motivasi,
-        "score_stress":    score_stress,
-        "score_sdi":       score_sdi,
-        "saran":           saran,
+        "message":          "Kuesioner berhasil disimpan.",
+        "Id_skrining":      skrining.Id_skrining,
+        "tingkat_stres":    tingkat_stres,
+        "tingkat_motivasi": tingkat_motivasi,
+        "score_stress":     score_stress,
+        "score_sdi":        score_sdi,
+        "saran":            saran,
+        "is_spike":         is_spike  # Mengembalikan informasi lonjakan secara instan ke frontend
     }), 201
 
 
