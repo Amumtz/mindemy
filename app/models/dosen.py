@@ -13,6 +13,7 @@ class Dosen(db.Model):
     mahasiswa_wali = db.relationship("Mahasiswa", back_populates="dosen_wali")
     catatan_list = db.relationship("CatatanKonseling", back_populates="dosen")
 
+<<<<<<< HEAD
 # C:\Users\maach\Documents\TA_Ghifarii\mindemy\app\models\user.py
 
 def to_dict(self) -> dict:
@@ -47,3 +48,12 @@ def to_dict(self) -> dict:
         data["nama"] = self.mahasiswa.nama_mahasiswa
     
     return data
+=======
+    def to_dict(self):
+        return {
+            "NIP": self.NIP,
+            "nama_dosen": self.nama_dosen,
+            "jabatan": self.jabatan,
+            "Id_User": self.Id_User,
+        }
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793

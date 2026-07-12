@@ -10,6 +10,12 @@ def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
 
+<<<<<<< HEAD
+=======
+    if config_name == 'production' and not app.config.get('SQLALCHEMY_DATABASE_URI'):
+        raise ValueError("DATABASE_URL environment variable is not set for production")
+
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
@@ -21,6 +27,7 @@ def create_app(config_name='development'):
 
     cors.init_app(app, origins=app.config['CORS_ORIGINS'])
 
+<<<<<<< HEAD
     # Hanya inisialisasi Celery jika TIDAK menjalankan perintah migrasi
     # dan tidak sedang menjalankan flask shell (opsional)
     # if not any(cmd in sys.argv for cmd in ['db', 'shell']):
@@ -29,16 +36,26 @@ def create_app(config_name='development'):
     #     celery = make_celery(app)
     #     register_train_task(celery, app)
 
+=======
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     # Register blueprints
     from app.api.auth import auth_bp
     from app.api.admin import admin_bp
     from app.api.mahasiswa import mahasiswa_bp
     from app.api.dosen import dosen_bp
+<<<<<<< HEAD
+=======
+    from app.api.kuesioner import kuesioner_bp  # ← TAMBAHKAN
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(mahasiswa_bp, url_prefix='/api/mahasiswa')
     app.register_blueprint(dosen_bp, url_prefix='/api/dosen')
+<<<<<<< HEAD
+=======
+    app.register_blueprint(kuesioner_bp, url_prefix='/api/kuesioner')  # ← TAMBAHKAN
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
     CORS(app, 
          supports_credentials=True,
@@ -55,4 +72,12 @@ def create_app(config_name='development'):
             except Exception as e:
                 app.logger.warning(f"Gagal memuat model ML: {e} (mungkin tabel models belum ada)")
 
+<<<<<<< HEAD
     return app
+=======
+    return app
+
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['MODELS_FOLDER'], exist_ok=True)
+os.makedirs(app.config['PROFILE_PHOTO_FOLDER'], exist_ok=True)
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793

@@ -32,6 +32,10 @@ class DiaryEntry(db.Model):
     date = db.Column(db.Date, nullable=False)
     title = db.Column(db.String(255))   # tambahan
     content = db.Column(db.Text, nullable=False)
+<<<<<<< HEAD
+=======
+    mood_value = db.Column(db.Integer, default=3)  # ← TAMBAHKAN KOLOM INI
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     created_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp())
     updated_at = db.Column(db.TIMESTAMP, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 
@@ -42,6 +46,10 @@ class DiaryEntry(db.Model):
             "date": self.date.isoformat() if self.date else None,
             "title": self.title,
             "content": self.content,
+<<<<<<< HEAD
+=======
+            "mood_value": self.mood_value,  # ← TAMBAHKAN INI
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

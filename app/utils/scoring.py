@@ -7,7 +7,11 @@ serta klasifikasi berdasarkan threshold qcut.
 """
 
 import numpy as np
+<<<<<<< HEAD
 from typing import Optional, Dict, Union
+=======
+from typing import Optional, Dict, Union, List
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -139,6 +143,7 @@ def validate_motivation_answers(answers: Dict) -> Optional[str]:
 
 
 # ──────────────────────────────────────────────────────────────────
+<<<<<<< HEAD
 # Saran Otomatis
 # ──────────────────────────────────────────────────────────────────
 
@@ -179,15 +184,123 @@ _SUGGESTIONS = {
         "Kondisi ini memerlukan perhatian segera. Sangat disarankan untuk berkonsultasi "
         "dengan konselor atau psikolog kampus dalam waktu dekat."
     ),
+=======
+# Saran Natural (Berdasarkan File PDF)
+# ──────────────────────────────────────────────────────────────────
+
+# Saran panjang untuk ditampilkan di detail
+_DETAILED_SUGGESTIONS = {
+    ("Tinggi", "Rendah"): [
+        "Tarik napas perlahan selama 5 menit sampai badan terasa sedikit lebih tenang.",
+        "Tulis tiga hal kecil yang tetap berjalan baik hari ini, sesederhana apa pun itu.",
+        "Pecah satu tugas besar menjadi langkah 10-15 menit, lalu fokus pada langkah pertama saja.",
+        "Kalau perlu, kabari teman dekat atau pasangan belajar agar ada yang ikut memantau progresmu.",
+        "Ingat, tidak apa-apa berjalan lambat. Yang penting tetap bergerak.",
+    ],
+    ("Tinggi", "Sedang"): [
+        "Batasi target harian ke tiga hal paling penting.",
+        "Gunakan pola belajar 25 menit lalu istirahat 5 menit agar pikiran tidak cepat penuh.",
+        "Usahakan tidur lebih teratur dan kurangi distraksi sebelum tidur.",
+        "Sisihkan waktu 10 menit untuk jalan santai atau peregangan ringan.",
+        "Jangan ragu untuk meminta bantuan jika merasa kewalahan.",
+    ],
+    ("Tinggi", "Tinggi"): [
+        "Buat jeda pemulihan singkat di sela aktivitas, misalnya 10-15 menit setiap beberapa jam.",
+        "Lakukan peregangan, jalan sebentar, atau lepas layar sejenak saat mulai terasa penat.",
+        "Luangkan waktu untuk mengecek capaian mingguan agar kamu tetap merasa maju tanpa harus terus ngebut.",
+        "Jangan tunggu benar-benar lelah untuk istirahat.",
+        "Semangatmu bagus, tapi tetap jaga jeda agar tidak habis di tengah jalan.",
+    ],
+    ("Sedang", "Rendah"): [
+        "Tanyakan ke diri sendiri, tugas ini akan berguna untuk tujuan apa dalam jangka panjang.",
+        "Pasang target kecil yang realistis untuk satu minggu ke depan.",
+        "Catat progres sederhana supaya kamu bisa melihat bahwa usahamu bergerak.",
+        "Belajar bersama satu atau dua teman bisa membantu menjaga ritme.",
+        "Coba ingat lagi tujuan belajarmu, lalu mulai dari target yang kecil tapi jelas.",
+    ],
+    ("Sedang", "Sedang"): [
+        "Buat daftar tugas mingguan lalu urutkan dari yang paling penting.",
+        "Gunakan teknik belajar yang membantu fokus, misalnya pomodoro.",
+        "Cek kondisi diri secara singkat setiap malam, misalnya dengan bertanya apakah hari ini terlalu melelahkan atau masih terkendali.",
+        "Jaga aktivitas fisik ringan beberapa kali dalam seminggu.",
+        "Atur ritme belajar yang stabil supaya energi dan fokus tetap terjaga.",
+    ],
+    ("Sedang", "Tinggi"): [
+        "Tetapkan jam belajar yang cukup konsisten.",
+        "Luangkan beberapa menit untuk merefleksikan apa yang sudah selesai setiap hari.",
+        "Ambil jeda aktif seperti jalan singkat, ngobrol dengan teman, atau minum air sebelum lanjut belajar.",
+        "Pastikan ada ruang istirahat agar motivasi tidak cepat turun.",
+        "Pertahankan pola yang sudah baik, lalu sisakan ruang untuk istirahat.",
+    ],
+    ("Rendah", "Rendah"): [
+        "Mulai dengan sesi singkat 10 menit, tanpa target yang terlalu berat.",
+        "Pilih satu tugas paling mudah agar kamu punya awal yang jelas.",
+        "Tulis satu alasan pribadi kenapa kuliah atau tugas ini tetap penting buatmu.",
+        "Cari teman, mentor, atau dosen yang bisa diajak bicara saat semangat terasa turun.",
+        "Mulai dari hal paling ringan dulu. Yang penting bergerak, tidak harus langsung banyak.",
+    ],
+    ("Rendah", "Sedang"): [
+        "Tentukan target harian yang jelas dan spesifik.",
+        "Tinjau kembali progresmu di akhir hari.",
+        "Pertahankan jam tidur yang cukup dan selingi aktivitas fisik ringan.",
+        "Gunakan catatan atau kalender supaya perkembanganmu terlihat.",
+        "Kamu sudah di jalur yang cukup baik. Tinggal jaga konsistensi setiap hari.",
+    ],
+    ("Rendah", "Tinggi"): [
+        "Ambil tugas yang sedikit lebih menantang dari biasanya.",
+        "Eksplor topik yang benar-benar kamu minati agar rasa ingin tahu tetap hidup.",
+        "Kerja bareng teman pada proyek kecil bisa membantu memperluas sudut pandang.",
+        "Jaga ritme yang sehat supaya kondisi ini bisa bertahan.",
+        "Ini waktu yang pas untuk berkembang. Ambil tantangan baru secara bertahap.",
+    ],
+}
+
+# Saran singkat untuk tampilan ringkas
+_SHORT_SUGGESTIONS = {
+    ("Tinggi", "Rendah"): "Ambil jeda sebentar, tenangkan pikiran, lalu kerjakan satu langkah kecil yang paling mungkin kamu selesaikan hari ini.",
+    ("Tinggi", "Sedang"): "Turunkan beban dulu, rapikan prioritas, dan fokus ke hal yang benar-benar penting hari ini.",
+    ("Tinggi", "Tinggi"): "Semangatmu bagus, tapi tetap jaga jeda agar tidak habis di tengah jalan.",
+    ("Sedang", "Rendah"): "Coba ingat lagi tujuan belajarmu, lalu mulai dari target yang kecil tapi jelas.",
+    ("Sedang", "Sedang"): "Atur ritme belajar yang stabil supaya energi dan fokus tetap terjaga.",
+    ("Sedang", "Tinggi"): "Pertahankan pola yang sudah baik, lalu sisakan ruang untuk istirahat.",
+    ("Rendah", "Rendah"): "Mulai dari hal paling ringan dulu. Yang penting bergerak, tidak harus langsung banyak.",
+    ("Rendah", "Sedang"): "Kamu sudah di jalur yang cukup baik. Tinggal jaga konsistensi setiap hari.",
+    ("Rendah", "Tinggi"): "Ini waktu yang pas untuk berkembang. Ambil tantangan baru secara bertahap.",
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 }
 
 
 def generate_saran(tingkat_stres: str, tingkat_motivasi: str) -> str:
     """
+<<<<<<< HEAD
     Menghasilkan saran berdasarkan kombinasi tingkat stres dan motivasi.
     """
     key = (tingkat_stres, tingkat_motivasi)
     return _SUGGESTIONS.get(
         key,
         "Silakan konsultasikan kondisi Anda dengan dosen wali."
+=======
+    Menghasilkan saran singkat berdasarkan kombinasi tingkat stres dan motivasi.
+    """
+    key = (tingkat_stres, tingkat_motivasi)
+    return _SHORT_SUGGESTIONS.get(
+        key,
+        "Jaga kesehatan mentalmu dengan istirahat cukup dan aktivitas yang menyenangkan."
+    )
+
+
+def generate_detailed_suggestions(tingkat_stres: str, tingkat_motivasi: str) -> List[str]:
+    """
+    Menghasilkan daftar saran detail berdasarkan kombinasi tingkat stres dan motivasi.
+    """
+    key = (tingkat_stres, tingkat_motivasi)
+    return _DETAILED_SUGGESTIONS.get(
+        key,
+        [
+            "Atur jadwal belajar dengan istirahat cukup.",
+            "Pastikan tidur 7-8 jam per malam.",
+            "Lakukan aktivitas fisik ringan secara rutin.",
+            "Jangan ragu untuk beristirahat jika merasa lelah.",
+        ]
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     )

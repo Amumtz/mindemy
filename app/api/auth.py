@@ -5,6 +5,10 @@ POST /api/auth/login
 POST /api/auth/refresh
 POST /api/auth/logout
 POST /api/auth/register   (admin only, for creating accounts)
+<<<<<<< HEAD
+=======
+POST /api/auth/activation  (BARU - untuk aktivasi akun mahasiswa)
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 GET  /api/auth/me
 """
 
@@ -14,7 +18,11 @@ from flask_jwt_extended import (
     jwt_required, current_user, get_jwt,
 )
 from app.extensions import db
+<<<<<<< HEAD
 from app.models import User, Mahasiswa, Dosen
+=======
+from app.models import User, Mahasiswa, Dosen, Jurusan
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -32,8 +40,24 @@ def login():
         return jsonify({"error": "Username dan password wajib diisi."}), 400
 
     user = User.query.filter_by(username=username).first()
+<<<<<<< HEAD
     if not user or not user.check_password(password):
         return jsonify({"error": "Username atau password salah."}), 401
+=======
+    
+    if not user:
+        return jsonify({"error": "Username atau password salah."}), 401
+    
+    if not user.check_password(password):
+        return jsonify({"error": "Username atau password salah."}), 401
+    
+    # ============ CEK STATUS AKTIVASI ============
+    if not user.is_activated:
+        return jsonify({
+            "error": "Akun belum diaktivasi. Silakan aktivasi terlebih dahulu."
+        }), 403
+    # =============================================
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
 
     # Build extra claims with profile info
     extra = _build_extra_claims(user)
@@ -70,6 +94,7 @@ def me():
     return jsonify(current_user.to_dict() | extra)
 
 
+<<<<<<< HEAD
 
 # C:\Users\maach\Documents\TA_Ghifarii\mindemy\app\api\auth.py
 
@@ -142,3 +167,148 @@ def _build_extra_claims(user: User) -> dict:
 #     db.session.commit()
 
 #     return jsonify({"message": "Password berhasil direset. Silakan login dengan password baru."})
+=======
+# @auth_bp.route("/register", methods=["POST"])
+# def register():
+#     data = request.get_json(silent=True) or {}
+
+#     # Ambil field identitas (bisa dikirim sebagai "identity" atau "nim" / "nip")
+#     identity = data.get("identity") or data.get("nim") or data.get("nip")
+#     username = data.get("username", "").strip()
+#     password = data.get("password", "")
+
+#     if not identity or not username or not password:
+#         return jsonify({"error": "NIM/NIP, username, dan password wajib diisi."}), 400
+
+    
+#     if identity.isdigit() and len(identity) <= 12:
+#         role = "dosen"
+#         nip = identity
+#         nim = None
+#     else:
+#         role = "mahasiswa"
+#         nim = identity
+#         nip = None
+
+#     if User.query.filter_by(username=username).first():
+#         return jsonify({"error": "Username sudah digunakan."}), 409
+
+#     # Buat user
+#     user = User(username=username, role=role)
+#     user.set_password(password)
+#     db.session.add(user)
+#     db.session.flush()
+
+#     # Buat profil dasar (hanya NIM/NIP, field lain null)
+#     if role == "mahasiswa":
+#         mhs = Mahasiswa(
+#             NIM=nim,
+#             nama_mahasiswa=None,   # akan diisi nanti
+#             Id_User=user.Id_User
+#         )
+#         db.session.add(mhs)
+#     else:
+#         dsn = Dosen(
+#             NIP=nip,
+#             nama_dosen=None,
+#             Id_User=user.Id_User
+#         )
+#         db.session.add(dsn)
+
+#     db.session.commit()
+
+#     # Langsung login? Atau beri pesan sukses & minta login.
+#     return jsonify({
+#         "message": "Registrasi berhasil. Silakan login untuk melengkapi profil.",
+#         "user_id": user.Id_User,
+#         "role": role
+#     }), 201
+
+
+# ============ ENDPOINT AKTIVASI ============
+
+@auth_bp.route("/activation", methods=["POST"])
+def activation():
+    """
+    Endpoint untuk aktivasi akun mahasiswa (verifikasi username & password yang sudah ada)
+    Request body: { "username": "xxx", "password": "xxx" }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        username = data.get("username", "").strip()
+        password = data.get("password", "")
+        
+        if not username or not password:
+            return jsonify({"error": "Username dan password wajib diisi."}), 400
+        
+        # Cari user berdasarkan username
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            return jsonify({"error": "Akun tidak ditemukan. Pastikan username Anda sudah terdaftar."}), 404
+        
+        # CEK APAKAH SUDAH AKTIVASI
+        if user.is_activated:
+            return jsonify({"error": "Akun sudah diaktivasi sebelumnya. Silakan login."}), 400
+        
+        # Verifikasi password
+        if not user.check_password(password):
+            return jsonify({"error": "Password salah. Periksa kembali."}), 401
+        
+        # Tandai user sebagai sudah diaktivasi
+        user.is_activated = True
+        
+        # Ambil data mahasiswa
+        nim = None
+        nama = None
+        jurusan = None
+        angkatan = None
+        kelas = None
+        nip_doswal = None
+        
+        if user.role == "mahasiswa" and user.mahasiswa:
+            nim = user.mahasiswa.NIM
+            nama = user.mahasiswa.nama_mahasiswa
+            kelas = user.mahasiswa.kelas
+            angkatan = user.mahasiswa.angkatan
+            nip_doswal = user.mahasiswa.NIP_doswal
+            
+            # Ambil nama jurusan dari tabel jurusan
+            if user.mahasiswa.id_jurusan:
+                jurusan_obj = Jurusan.query.filter_by(Id_Jurusan=user.mahasiswa.id_jurusan).first()
+                if jurusan_obj:
+                    jurusan = jurusan_obj.nama_jurusan
+        
+        db.session.commit()
+        
+        # Kembalikan data user
+        return jsonify({
+            "message": "Aktivasi berhasil",
+            "user": {
+                "username": user.username,
+                "NIM": nim,
+                "nama": nama or user.username,
+                "jurusan": jurusan or "",
+                "angkatan": angkatan or "",
+                "kelas": kelas or "",
+                "nip_doswal": nip_doswal or "",
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
+
+
+# ── Helpers ──────────────────────────────────────────────────────
+
+def _build_extra_claims(user: User) -> dict:
+    claims = {"role": user.role}
+    if user.role == "mahasiswa" and user.mahasiswa:
+        claims["NIM"]  = user.mahasiswa.NIM
+        claims["nama"] = user.mahasiswa.nama_mahasiswa
+    elif user.role == "dosen" and user.dosen:
+        claims["NIP"]  = user.dosen.NIP
+        claims["nama"] = user.dosen.nama_dosen
+    return claims
+>>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
