@@ -9,6 +9,7 @@ from app.extensions import db, jwt, cors, celery, migrate
 def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
+
     if config_name == 'production' and not app.config.get('SQLALCHEMY_DATABASE_URI'):
         raise ValueError("DATABASE_URL environment variable is not set for production")
 
@@ -30,7 +31,6 @@ def create_app(config_name='development'):
     #     global celery
     #     celery = make_celery(app)
     #     register_train_task(celery, app)
-
 
     # Register blueprints
     from app.api.auth import auth_bp
@@ -59,6 +59,7 @@ def create_app(config_name='development'):
                 registry.reload_from_db(app)
             except Exception as e:
                 app.logger.warning(f"Gagal memuat model ML: {e} (mungkin tabel models belum ada)")
+
     return app
 
 

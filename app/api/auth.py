@@ -5,6 +5,7 @@ POST /api/auth/login
 POST /api/auth/refresh
 POST /api/auth/logout
 POST /api/auth/register   (admin only, for creating accounts)
+
 POST /api/auth/activation  (BARU - untuk aktivasi akun mahasiswa)
 GET  /api/auth/me
 """
@@ -15,6 +16,7 @@ from flask_jwt_extended import (
     jwt_required, current_user, get_jwt,
 )
 from app.extensions import db
+
 from app.models import User, Mahasiswa, Dosen, Jurusan
 
 auth_bp = Blueprint("auth", __name__)
@@ -37,7 +39,6 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({"error": "Username atau password salah."}), 401
 
-    
     if not user:
         return jsonify({"error": "Username atau password salah."}), 401
     
@@ -50,6 +51,7 @@ def login():
             "error": "Akun belum diaktivasi. Silakan aktivasi terlebih dahulu."
         }), 403
     # =============================================
+
     # Build extra claims with profile info
     extra = _build_extra_claims(user)
     access  = create_access_token(identity=str(user.Id_User), additional_claims=extra)
@@ -84,6 +86,8 @@ def me():
     extra = _build_extra_claims(current_user)
     return jsonify(current_user.to_dict() | extra)
 
+
+# C:\Users\maach\Documents\TA_Ghifarii\mindemy\app\api\auth.py
 
 def _build_extra_claims(user: User) -> dict:
     claims = {"role": user.role}

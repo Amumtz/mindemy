@@ -2,6 +2,7 @@
 app/api/mahasiswa.py
 ────────────────────────────────────────────────────────
 POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi) + Deteksi Early Warning
+POST /api/mahasiswa/kuesioner           – submit jawaban (stress + motivasi) + Deteksi Early Warning
 GET  /api/mahasiswa/hasil/<nim>         – hasil skrining terbaru
 GET  /api/mahasiswa/history             – riwayat semua skrining
 GET  /api/mahasiswa/catatan             – catatan konseling dari dosen
@@ -18,9 +19,11 @@ from app.utils.scoring import (
     compute_stress_score, compute_sdi_score,
     validate_stress_answers, validate_motivation_answers,
     generate_saran, score_to_category,
+    generate_saran, score_to_category,
 )
 from app.ml.predictor import registry, prepare_stress_input, prepare_motivasi_input
 from app.models.mood_diary import MoodEntry, DiaryEntry
+from datetime import datetime
 from datetime import datetime
 from app.utils.file_upload import save_profile_picture
 from werkzeug.exceptions import BadRequest
@@ -76,6 +79,14 @@ def submit_kuesioner():
     if err:
         return jsonify({"error": f"Validasi motivasi: {err}"}), 422
 
+    # Validasi
+    err = validate_stress_answers(jawaban)
+    if err:
+        return jsonify({"error": f"Validasi stres: {err}"}), 422
+    err = validate_motivation_answers(jawaban)
+    if err:
+        return jsonify({"error": f"Validasi motivasi: {err}"}), 422
+
     # Resolve NIM
     if current_user.role == "mahasiswa":
         nim = current_user.mahasiswa.NIM
@@ -88,6 +99,7 @@ def submit_kuesioner():
     if not mhs:
         return jsonify({"error": "Data mahasiswa tidak ditemukan."}), 404
 
+    # Data demografi
     # Data demografi
     mhs_data = {
         "IPK": getattr(mhs, "IPK", 0.0),
@@ -102,6 +114,9 @@ def submit_kuesioner():
     # Hitung skor mentah
     score_stress = compute_stress_score(jawaban)
     score_sdi    = compute_sdi_score(jawaban)
+    # Hitung skor mentah
+    score_stress = compute_stress_score(jawaban)
+    score_sdi    = compute_sdi_score(jawaban)
 
     # Pastikan model siap
     stress_loaded = _ensure_model_loaded("stress")
@@ -110,6 +125,8 @@ def submit_kuesioner():
     # Prediksi Stress
     if stress_loaded:
         try:
+            input_stress = prepare_stress_input(mhs_data, jawaban)
+            # Catatan: audit_input dihapus jika fungsinya tidak di-import/didefinisikan di atas
             input_stress = prepare_stress_input(mhs_data, jawaban)
             # Catatan: audit_input dihapus jika fungsinya tidak di-import/didefinisikan di atas
             tingkat_stres = registry.predict("stress", input_stress)
@@ -122,6 +139,7 @@ def submit_kuesioner():
     # Prediksi Motivasi
     if motivasi_loaded:
         try:
+            input_motivasi = prepare_motivasi_input(mhs_data, jawaban)
             input_motivasi = prepare_motivasi_input(mhs_data, jawaban)
             tingkat_motivasi = registry.predict("motivasi", input_motivasi)
         except Exception as e:
@@ -158,6 +176,7 @@ def submit_kuesioner():
     db.session.commit()
 
     return jsonify({
+        "status":           "success",
         "message":          "Kuesioner berhasil disimpan.",
         "Id_skrining":      skrining.Id_skrining,
         "tingkat_stres":    tingkat_stres,
@@ -165,7 +184,7 @@ def submit_kuesioner():
         "score_stress":     score_stress,
         "score_sdi":        score_sdi,
         "saran":            saran,
-        "is_spike":         is_spike  # Mengembalikan informasi lonjakan secara instan ke frontend
+        "is_spike":         is_spike
     }), 201
 
 
@@ -288,8 +307,10 @@ def profil_status():
 @mahasiswa_required
 def add_mood():
     """Tambah catatan mood harian (1-5)"""
+    """Tambah catatan mood harian (1-5)"""
     data = request.get_json(silent=True) or {}
     nim = data.get("nim")
+    date_str = data.get("date")      # format YYYY-MM-DD
     date_str = data.get("date")      # format YYYY-MM-DD
     mood_value = data.get("mood_value")
 
@@ -318,6 +339,10 @@ def add_mood():
     if not mhs:
         return jsonify({"error": "Mahasiswa tidak ditemukan."}), 404
 
+    new_mood = MoodEntry(nim=nim, date=date_obj, mood_value=mood_value)
+    db.session.add(new_mood)
+    db.session.commit()
+    return jsonify(new_mood.to_dict()), 201
     new_mood = MoodEntry(nim=nim, date=date_obj, mood_value=mood_value)
     db.session.add(new_mood)
     db.session.commit()
@@ -481,6 +506,7 @@ def upload_foto_profil():
         # Hapus foto lama jika ada
         if mhs.foto_profil:
             old_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
+            old_path = os.path.join(current_app.root_path, '..', mhs.foto_profil)
             if os.path.exists(old_path):
                 os.remove(old_path)
         
@@ -499,9 +525,13 @@ def upload_foto_profil():
         current_app.logger.error(f"Gagal upload foto: {e}")
         return jsonify({"error": "Terjadi kesalahan saat menyimpan foto."}), 500
     
+    
 @mahasiswa_bp.route("/profil/foto/<nim>", methods=["GET"])
 @jwt_required()
+@jwt_required()
 def get_foto_profil(nim):
+    if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
+        return jsonify({"error": "Akses ditolak."}), 403
     if current_user.role == "mahasiswa" and current_user.mahasiswa.NIM != nim:
         return jsonify({"error": "Akses ditolak."}), 403
     
@@ -509,6 +539,12 @@ def get_foto_profil(nim):
     if not mhs or not mhs.foto_profil:
         return jsonify({"error": "Foto profil tidak ditemukan."}), 404
     
+    # Path absolut
+    root_dir = os.path.dirname(current_app.root_path)   # path ke backend/
+    full_path = os.path.join(root_dir, mhs.foto_profil)
+
+    if not os.path.exists(full_path):
+        current_app.logger.error(f"File not found: {full_path}")
     # Path absolut
     root_dir = os.path.dirname(current_app.root_path)   # path ke backend/
     full_path = os.path.join(root_dir, mhs.foto_profil)

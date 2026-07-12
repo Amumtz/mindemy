@@ -13,11 +13,7 @@ class Mahasiswa(db.Model):
     Id_User = db.Column(db.Integer, db.ForeignKey("users.Id_User"), nullable=False, unique=True)
     foto_profil = db.Column(db.String(500), nullable=True)
 
-<<<<<<< HEAD
-    # Tambahan kolom demografi
-=======
     # Tambahan kolom demografi (jika sudah ditambahkan via migrasi)
->>>>>>> 739bd89b5c85dd8759f5f30896c96b74b6781793
     angkatan = db.Column(db.String(10))
     gender = db.Column(db.String(10))
     tanggal_lahir = db.Column(db.Date)
